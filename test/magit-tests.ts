@@ -183,6 +183,19 @@ ertDeftest("magit-the-status-buffer-shows-what-magit-shows", () => {
   });
 });
 
+ertDeftest("magit-is-magit-status", () => {
+  const dir = repo();
+  withRepos([dir], () => {
+    should(e8.commandNames().includes("magit"));
+    e8.call("delete-other-windows");
+    e8.call("switch-to-buffer", "*magit-test*");
+    e8.setVariable("default-directory", dir);
+    e8.call("magit" as e8.DefinedCommand);
+    shouldEqual(e8.bufferName(), `magit: ${e8.fileNameNondirectory(dir.replace(/\/$/, ""))}`);
+    shouldEqual(visible(), [START, 3]);
+  });
+});
+
 ertDeftest("magit-staging-and-unstaging-files-and-hunks", () => {
   const dir = repo();
   withRepos([dir], () => {

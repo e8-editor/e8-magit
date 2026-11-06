@@ -16,7 +16,7 @@ E8 installs it at its newest version tag into `repos/` beside `init.ts`, with [e
 
 ## Using it
 
-`C-x g` (`magit-status`) in a file or directory of a repository shows its status; outside one it offers to make one. `C-x M-g` opens the dispatch menu from anywhere. In Magit's buffers:
+`C-x g` (`magit-status`, or `M-x magit`) in a file or directory of a repository shows its status; outside one it offers to make one. `C-x M-g` opens the dispatch menu from anywhere. In Magit's buffers:
 
 | Key | Does |
 | --- | --- |
