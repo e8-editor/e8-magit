@@ -1,0 +1,19 @@
+{
+  "buffer": "magit-reflog: repo",
+  "point": 1,
+  "text": "e6b47a8 0  reset            moving to HEAD\ne6b47a8 1  reset            moving to HEAD\ne6b47a8 2  commit           Local commit\n919904d 3  commit           Add b\n83cb578 4  commit           Second commit\n408580f 5  initial          First commit\n",
+  "faces": [
+    "1:0-7 magit-hash",
+    "1:11-27 magit-reflog-reset",
+    "2:0-7 magit-hash",
+    "2:11-27 magit-reflog-reset",
+    "3:0-7 magit-hash",
+    "3:11-27 magit-reflog-commit",
+    "4:0-7 magit-hash",
+    "4:11-27 magit-reflog-commit",
+    "5:0-7 magit-hash",
+    "5:11-27 magit-reflog-commit",
+    "6:0-7 magit-hash",
+    "6:11-27 magit-reflog-commit"
+  ]
+}

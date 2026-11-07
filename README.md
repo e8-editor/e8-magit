@@ -48,7 +48,8 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - **Rebase** (`r`): onto the upstream, the push remote or elsewhere, a subset, interactively with the todo list in `git-rebase-mode`, to edit, reword or remove a commit, autosquash, and continue, skip, edit or abort one going on.
 - **Reset** (`X`): mixed, soft, hard, keep, the index or the worktree only, a branch, or a file.
 - **Stash** (`z`): both, the index, the worktree, or keeping the index; snapshots; apply, pop, drop, list, show, branch, and format a stash as a patch.
-- **Log** (`l`): the current branch, another, the related branches, local or all branches, all references; reflogs; shortlog. `RET` shows a commit, with its diff.
+- **Log** (`l`): the current branch, HEAD, another, the related branches, local or all branches, all references, matching branches or tags, a file's history, a definition's trace, a commit's merge; reflogs; shortlog; cherries. Each commit has its graph, refs and summary, and its author and age in the margin (`L` to toggle, cycle or detail it); `+`, `-` and `=` change the limit; with `++header`, `--patch` or `--stat` the commit's header or diff. `RET` shows a commit.
+- **The status buffer** as Magit's: the headers (an error, the diff filter, Head, Merge or Rebase, Push, the tags), a merge, rebase, git am, cherry-pick, revert or bisect going on, untracked files, unstaged and staged changes, stashes, and the commits unpushed, unpulled or recent, each section a function in `magit-status-sections-hook`; `j` jumps to a section.
 - **Diff** (`d`): dwim, a range, two paths, unstaged, staged, the worktree, a commit, a stash, each with a diffstat; `+`, `-` and `0` change the context, `j` jumps between the diffstat and the diff, `SPC` and `DEL` show the commit at point or scroll it, and with `magit-diff-refine-hunk` the words that changed are marked. The revision buffer shows a commit's refs, author, parents, the branches it is merged into and contained in, the tags around it, its message and notes, and a tag's message; the stash buffer a stash's unstaged, staged and untracked changes. `RET` on a hunk visits its line in the work tree or the blob.
 - From the dispatch menu, cherry-pick, revert, tag, ignore, init, clone, run a git command, refs, cherries, add a remote and format patches, one command each.
 
@@ -56,8 +57,6 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 
 - **Not there at all**: blame; bisect; worktrees; submodules; subtrees; notes; ediff; applying patches (`w`, git am); applying or reversing a change from elsewhere (`a`, `v`); and `magit-file-dispatch`. Their keys in the menus say so.
 - **One command rather than a menu**: cherry-pick, revert, tag and remote, where Magit opens a menu of their own.
-- **The log** is a line a commit, with no graph and no margin. The log menu's limiting, simplification and ordering options change which commits it lists; its formatting switches draw nothing, and showing diffs or diffstats in the log does not work.
-- **The status buffer** does not show a rebase or merge going on, or the files in conflict, though the rebase menu offers to continue one.
 - Only programs E8 starts can use E8 as their editor (see e8-with-editor).
 
 ## Credit

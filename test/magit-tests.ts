@@ -273,7 +273,16 @@ ertDeftest("magit-the-log-lists-the-commits", () => {
     // its command, with the menu's default arguments.
     e8.call("magit-log-current" as e8.DefinedCommand);
     const log = visible()[0];
-    should(log.includes(" main First commit  Tester "), log);
+    should(log.includes(" * main First commit"), log);
+    // The author and age are in the right margin, as Magit's log shows them.
+    const margins = e8
+      .overlaysIn(e8.pointMin(), e8.pointMax())
+      .map((o) => e8.overlayGet(o, "before-string"))
+      .filter((b): b is e8.PropertizedString => b instanceof e8.PropertizedString)
+      .map((b) => JSON.stringify(b.properties));
+    should(margins.some((m) => m.includes("Tester")), JSON.stringify(margins));
+    // magit-log-margin-width: the author 18 and a space, two digits, a space and the longest unit, "minutes", and a space.
+    shouldEqual(e8.variable("right-margin-width"), 30);
     e8.executeKbdMacro("RET");
     const rev = visible()[0];
     should(rev.includes("Author:     Tester <t@example.com>") && rev.includes("new file   a.txt"), rev);

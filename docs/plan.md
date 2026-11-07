@@ -11,8 +11,8 @@ Sizes are the Lisp ported, from `wc -l` of Magit 4.4.0's `lisp/`; the port is ab
 | 2 | Processes: sentinels, the process buffer, prompts, errors | 1,400 | done: magit-process.ts, magit-mode.ts |
 | 3 | Sections complete, after magit-section.el | 2,700 | done: e8-magit-section 0.2.0; 8 of 27 cases |
 | 4 | Diffs complete, after magit-diff.el | 3,700 | done: magit-diff.ts; 25 of 34 cases |
-| 5 | The status buffer complete, after magit-status.el | 800 | not started |
-| 6 | Logs complete: margin, graph, reflog, cherries | 2,600 | not started |
+| 5 | The status buffer complete, after magit-status.el | 800 | done: magit-status.ts and the status inserters |
+| 6 | Logs complete: margin, graph, reflog, cherries | 2,600 | done: magit-log.ts, magit-margin.ts; all 44 cases |
 | 7 | Transient complete, in E8's `packages/transient.ts` | 5,900 | not started |
 | 8 | The sequencer: cherry-pick, revert, am, rebase in progress | 1,100 | not started |
 | 9 | The menus that are one command: tag, remote, clone, init, run | 1,300 | not started |
@@ -27,7 +27,7 @@ Sizes are the Lisp ported, from `wc -l` of Magit 4.4.0's `lisp/`; the port is ab
 ## How a step is done
 
 - **One branch and one pull request per step**, from `main`, merged before the next step starts; a step that grows past a session is split where its tests pass, and the rest becomes a row of its own in the table. The pull request updates this table and the README's "What works" and "What is missing".
-- **Read the Lisp first, port it closely**: its names (kebab-case as camelCase in TypeScript, `-p` as `P`), its messages, its order, its faces and options, as the E8 docs say ([docs/working.md](https://github.com/e8-editor/e8/blob/main/docs/working.md), [ADR 0013](https://github.com/e8-editor/e8/blob/main/docs/adr/0013-following-org-closely.md)). Magit 4.4.0's source is at the `v4.4.0` tag of github.com/magit/magit; Mark's Emacs has it built in `~/.emacs.d/elpaca/builds/magit`, where `test/record.el` loads it from.
+- **Read the Lisp first, port it closely**: its names (kebab-case as camelCase in TypeScript, `-p` as `P`), its messages, its order, its faces and options, as the E8 docs say ([docs/working.md](https://github.com/e8-editor/e8/blob/main/docs/working.md), [ADR 0013](https://github.com/e8-editor/e8/blob/main/docs/adr/0013-following-org-closely.md)). The recordings come from Mark's Emacs's Magit, built in `~/.emacs.d/elpaca/builds/magit` from `~/.emacs.d/elpaca/repos/magit` (4.4.0 and 43 commits, `v4.4.0-43-g9bd644a`): read that source, not the tag's, so the port and the recordings agree.
 - **Record, then match.** Before porting a buffer or a menu, add its case to `test/record.el` and run `emacs -Q --batch -l test/record.el`, which writes what Magit shows; the test compares E8's buffer with it key by key, as `magit-the-status-buffer-shows-what-magit-shows` does. A command that changes the repository is tested by what `git` shows afterwards. Nothing is guessed: where the Lisp is unclear, batch Emacs answers, `emacs -Q --batch -l test/record.el` or an `--eval`.
 - **`make test` and `make types` pass before the pull request**, on the E8 on the PATH (a release, or a build of `main`), and `tsc -p .` is clean. A step that needs something E8 lacks says so in its row and gets that done first in E8, as a pull request there, since a package cannot work around the core.
 - **What E8 does not match is written down** in the README's "What is missing", with why, rather than left silent.

@@ -755,18 +755,19 @@ export function magitFormatRefLabels(decorations: string): e8.PropertizedString 
     const withPush = (label: e8.PropertizedString): e8.PropertizedString => (push ? e8.concat(push, label) : label);
     if (name === current) head = withPush(fontify(name, "magit-branch-current"));
     else if (name === target) {
-      upstream = withPush(fontify(name, ["magit-branch-upstream", "magit-branch-local"]));
+      // The upstream keeps the face magit-get-upstream-branch gives it.
+      upstream = withPush(fontify(name, ["magit-branch-upstream", magitUpstreamFace(current)]));
       upstreamName = name;
     } else combined.push(withPush(fontify(name, "magit-branch-local")));
   }
   if (!upstream && target) {
     if (remotes.includes(target)) {
-      upstream = fontify(target, ["magit-branch-upstream", remoteFaces.get(target) ?? "magit-branch-remote"]);
+      upstream = fontify(target, ["magit-branch-upstream", magitUpstreamFace(current)]);
       remotes = remotes.filter((r) => r !== target);
     } else if (upstreamName === undefined) {
       const i = combined.findIndex((c) => c.string === target);
       if (i >= 0) {
-        upstream = fontify(target, ["magit-branch-upstream", "magit-branch-local"]);
+        upstream = fontify(target, ["magit-branch-upstream", magitUpstreamFace(current)]);
         combined.splice(i, 1);
       }
     }

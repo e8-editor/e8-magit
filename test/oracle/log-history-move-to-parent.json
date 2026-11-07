@@ -1,0 +1,11 @@
+{
+  "buffer": "magit-log: repo",
+  "point": 2,
+  "text": "77d9ece * main Three\n2b5c151 * Two\n18f4486 * One\n",
+  "faces": [
+    "1:0-7 magit-hash",
+    "1:10-14 magit-branch-current",
+    "2:0-7 magit-hash",
+    "3:0-7 magit-hash"
+  ]
+}

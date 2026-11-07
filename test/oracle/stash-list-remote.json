@@ -1,0 +1,11 @@
+{
+  "buffer": "magit-stashes: repo",
+  "point": 1,
+  "text": "Stashes (t)\nstash@{0} On main: second stash\nstash@{1} On main: first stash\n",
+  "faces": [
+    "1:0-7 magit-section-heading",
+    "1:7-11 magit-section-child-count",
+    "2:0-9 magit-hash",
+    "3:0-9 magit-hash"
+  ]
+}

@@ -106,3 +106,41 @@ export function magitConfirm(action: string | true, prompt?: string, promptN?: s
 
 /** Whether the prefix argument was given, as current-prefix-arg in a command. */
 export const prefixArgP = (): boolean => truthy(e8.prefixArg());
+
+const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const pad = (n: number, w = 2, c = "0"): string => String(n).padStart(w, c);
+
+/** TIME, seconds since the epoch, formatted by FORMAT in local time, as format-time-string's common conversions. */
+export function magitFormatTimeString(format: string, time: number): string {
+  const d = new Date(time * 1000);
+  return format.replace(/%([a-zA-Z%])/g, (_m, c: string) => {
+    switch (c) {
+      case "Y": return String(d.getFullYear());
+      case "y": return pad(d.getFullYear() % 100);
+      case "m": return pad(d.getMonth() + 1);
+      case "d": return pad(d.getDate());
+      case "e": return pad(d.getDate(), 2, " ");
+      case "H": return pad(d.getHours());
+      case "I": return pad(((d.getHours() + 11) % 12) + 1);
+      case "M": return pad(d.getMinutes());
+      case "S": return pad(d.getSeconds());
+      case "p": return d.getHours() < 12 ? "AM" : "PM";
+      case "b": case "h": return months[d.getMonth()];
+      case "B": return ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][d.getMonth()];
+      case "a": return days[d.getDay()];
+      case "A": return ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][d.getDay()];
+      case "j": return pad(Math.floor((d.getTime() - new Date(d.getFullYear(), 0, 1).getTime()) / 86400000) + 1, 3);
+      case "s": return String(Math.floor(time));
+      case "F": return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      case "T": return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      case "R": return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      case "z": {
+        const off = -d.getTimezoneOffset();
+        return `${off >= 0 ? "+" : "-"}${pad(Math.floor(Math.abs(off) / 60))}${pad(Math.abs(off) % 60)}`;
+      }
+      case "%": return "%";
+      default: return `%${c}`;
+    }
+  });
+}
