@@ -39,6 +39,24 @@
   "Whether SYMBOL's definition of TYPE (nil for a function, defvar, defface) is in a Magit file."
   (mp-magit-file-p (symbol-file symbol type)))
 
+(defun mp-map-keys (map prefix fn)
+  "Call FN with each key sequence in MAP after PREFIX and the command it runs.
+Prefix maps are entered, ranges of characters given one by one, and
+remaps and menus left out."
+  (map-keymap
+   (lambda (event binding)
+     (let ((events (if (consp event)
+                       (number-sequence (car event) (cdr event))
+                     (list event))))
+       (dolist (ev events)
+         (let ((keys (vconcat prefix (vector ev))))
+           (cond ((memq ev '(remap menu-bar tool-bar)))
+                 ((and (symbolp binding) binding (not (eq binding 'undefined)) (commandp binding))
+                  (funcall fn (key-description keys) binding))
+                 ((keymapp binding)
+                  (mp-map-keys binding keys fn)))))))
+   map))
+
 (defun mp-name-p (symbol)
   (string-match-p "\\`\\(magit\\|git-\\)" (symbol-name symbol)))
 
@@ -60,11 +78,7 @@
        (when (and (boundp s) (keymapp (symbol-value s)) (mp-defined-in-magit-p s 'defvar)
                   (string-suffix-p "-map" (symbol-name s)))
          (let (keys)
-           (map-keymap
-            (lambda (event binding)
-              (when (and (symbolp binding) binding (not (eq binding 'undefined)))
-                (push (list (key-description (vector event)) (symbol-name binding)) keys)))
-            (symbol-value s))
+           (mp-map-keys (symbol-value s) [] (lambda (key binding) (push (list key (symbol-name binding)) keys)))
            (push (list (symbol-name s) (sort keys (lambda (a b) (string< (car a) (car b))))) keymaps))))))
   (with-temp-file (expand-file-name "parity.json" mp-dir)
     (insert (json-encode

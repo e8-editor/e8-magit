@@ -135,6 +135,15 @@ const faces: [string, string, e8.FaceAttributes, e8.FaceAttributes?, e8.FaceAttr
   ["magit-log-date", "Face for the date part of the log output.", {}, { foreground: "grey30" }, { foreground: "grey80" }],
   ["magit-process-ok", "Face for zero exit-status.", { inherit: "magit-section-heading", foreground: "green" } as e8.FaceAttributes],
   ["magit-process-ng", "Face for non-zero exit-status.", { inherit: "magit-section-heading", foreground: "red" } as e8.FaceAttributes],
+  ["magit-branch-remote-head", "Face for current branch.", { inherit: "magit-branch-remote", box: true } as e8.FaceAttributes],
+  ["magit-branch-upstream", "Face for upstream branch.  This face is only used in logs and it gets combined with magit-branch-local, magit-branch-remote and/or magit-branch-remote-head.", { slant: "italic" } as e8.FaceAttributes],
+  ["magit-branch-warning", "Face for warning about (missing) branch.", { inherit: "warning" }],
+  ["magit-header-line", "Face for the header-line in some Magit modes.", { inherit: "magit-section-heading" }],
+  ["magit-header-line-key", "Face for keys in the header-line.", { inherit: "font-lock-builtin-face" }],
+  ["magit-refname", "Face for refnames without a dedicated face.", {}, { foreground: "grey30" }, { foreground: "grey80" }],
+  ["magit-refname-stash", "Face for stash refnames.", { inherit: "magit-refname" }],
+  ["magit-refname-wip", "Face for wip refnames.", { inherit: "magit-refname" }],
+  ["magit-refname-pullreq", "Face for pullreq refnames.", { inherit: "magit-refname" }],
 ];
 for (const [name, doc, attributes, light, dark] of faces) e8.defineFace({ name, doc, attributes, light, dark });
 
