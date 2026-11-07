@@ -585,5 +585,3 @@ export const magitFileDispatch = transientDefinePrefix("magit-file-dispatch", {
   ],
 });
 
-// Magit's global keys, as magit-define-global-key-bindings's default: C-c M-g for the file dispatch.
-e8.bindKey("C-c M-g", magitFileDispatch);

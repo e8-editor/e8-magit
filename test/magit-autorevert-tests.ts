@@ -7,6 +7,7 @@
 
 import { ertDeftest, should, shouldEqual } from "ert";
 import "magit";
+import * as autorevert from "magit-autorevert";
 import { gotoText, read, repo, status, withRepos, write } from "magit-test-helpers";
 
 /** Runs BODY with magit-auto-revert-mode on, as it is outside batch. */
@@ -46,7 +47,8 @@ ertDeftest("magit-auto-revert-reverts-buffers-after-git-changes-their-files", ()
         e8.gotoChar(e8.pointMax());
         e8.insert("unsaved\n");
       });
-      status(dir);
+      // b.txt is left unsaved: the status buffer's magit-setup-buffer-hook would save it.
+      e8.letBind({ "magit-save-repository-buffers": false }, () => status(dir));
       gotoText("modified   a.txt");
       // Discarding the change puts a.txt back, and its buffer follows at once.
       e8.letBind({ "magit-save-repository-buffers": false }, () => e8.executeKbdMacro("k y"));
@@ -71,4 +73,18 @@ ertDeftest("magit-auto-revert-leaves-buffers-alone-when-off", () => {
     shouldEqual(read(dir, "a.txt"), "one\ntwo\nthree\n");
     shouldEqual(e8.withCurrentBuffer(a, () => e8.bufferText()), "one\nTWO\nthree\nfour\n");
   });
+});
+
+ertDeftest("magit-auto-revert-mode-says-it-is-turned-on-unless-magit-no-message", () => {
+  const messages = () => e8.messages().filter((m) => m.startsWith("Turning on magit-auto-revert-mode"));
+  const before = messages().length;
+  try {
+    autorevert.magitAutoRevertModeInitKludge();
+    shouldEqual(e8.variable("magit-auto-revert-mode"), true);
+    shouldEqual(messages().slice(before), ["Turning on magit-auto-revert-mode...", "Turning on magit-auto-revert-mode...done"]);
+    e8.letBind({ "magit-no-message": ["Turning on magit-auto-revert-mode"] }, () => autorevert.magitAutoRevertModeInitKludge());
+    shouldEqual(messages().length, before + 2);
+  } finally {
+    e8.callWithPrefix(0, "magit-auto-revert-mode" as e8.CommandName);
+  }
 });

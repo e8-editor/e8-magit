@@ -1,1 +1,25 @@
-{"commands": {}, "options": {}, "faces": {}, "keys": {}}
+{
+  "commands": {},
+  "options": {
+    "magit-credential-cache-daemon-socket": "E8 does not start git's credential cache daemon, which Magit starts for HTTPS remotes.",
+    "magit-cygwin-mount-points": "E8 does not run on Cygwin or Windows, whose file names this translates.",
+    "magit-need-cygwin-noglob": "E8 does not run on Cygwin or Windows, whose git globs arguments.",
+    "magit-git-output-coding-system": "E8 has no coding systems: git's output is read as UTF-8.",
+    "magit-process-ensure-unix-line-ending": "E8 has no coding systems: what is sent to git keeps its line endings.",
+    "magit-remote-git-executable": "E8 has no remote files (TRAMP), so git always runs on this machine.",
+    "magit-revision-show-gravatars": "E8 does not fetch gravatar images.",
+    "magit-view-git-manual-method": "E8 has no Info reader, so there are no Info links to Git's manual to follow.",
+    "magit-ediff-dwim-resolve-function": "The port has no Ediff commands yet.",
+    "magit-ediff-dwim-show-on-hunks": "The port has no Ediff commands yet.",
+    "magit-ediff-quit-hook": "The port has no Ediff commands yet.",
+    "magit-ediff-show-stash-with-index": "The port has no Ediff commands yet.",
+    "magit-region-highlight-hook": "E8 has no redisplay-highlight-region-function, through which Magit draws a selection in place of the region.",
+    "magit-section-keep-region-overlay": "E8 has no redisplay-highlight-region-function, through which Magit draws a selection in place of the region.",
+    "magit-diff-highlight-hunk-region-functions": "E8 has no redisplay-highlight-region-function, through which Magit draws a hunk-internal region.",
+    "magit-diff-unmarked-lines-keep-foreground": "E8 has no redisplay-highlight-region-function, through which Magit draws a hunk-internal region.",
+    "magit-diff-buffer-file-locked": "The port's buffers are not locked to their values (magit-buffer-locked-p), so magit-diff-buffer-file reuses the one diff buffer.",
+    "magit-log-buffer-file-locked": "The port's buffers are not locked to their values (magit-buffer-locked-p), so magit-log-buffer-file reuses the one log buffer."
+  },
+  "faces": {},
+  "keys": {}
+}
