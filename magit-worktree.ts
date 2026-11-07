@@ -16,7 +16,7 @@
 import { truthy } from "subr";
 import { insertHeading, insertSection, magitSectionDefineType } from "magit-section";
 import { transientDefinePrefix } from "transient";
-import { magitCompletingRead, magitConfirm, magitReadStringNs } from "magit-base";
+import { magitCompletingRead, magitCompletingReadSilentDefault, magitConfirm, magitReadStringNs } from "magit-base";
 import {
   magitBranchP,
   magitGetCurrentBranch,
@@ -183,7 +183,8 @@ export function magitBranchReadArgs(prompt: string, defaultStart?: string): [str
     const choice = magitReadStartingPoint(prompt, undefined, defaultStart);
     if (magitRevVerify(choice)) {
       const def = choice.split("/").slice(1).join("/");
-      return [magitReadStringNs("Name for new branch", magitListRemoteBranchNames().includes(choice) && !magitListLocalBranchNames().includes(def) ? def : undefined), choice];
+      const namePrompt = magitCompletingReadSilentDefault ? `${prompt} (starting at \`${choice}')` : "Name for new branch";
+      return [magitReadStringNs(namePrompt, magitListRemoteBranchNames().includes(choice) && !magitListLocalBranchNames().includes(def) ? def : undefined), choice];
     }
     if (upstreamFirst === "fallback") return [choice, magitReadStartingPoint(prompt, choice, defaultStart)];
     return e8.userError(`Not a valid starting-point: ${choice}`);

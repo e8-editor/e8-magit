@@ -19,9 +19,10 @@
 import { insertHeading, insertRoot, insertSection, sections, show } from "magit-section";
 import { readPasswd, truthy } from "subr";
 import { withEditorEnv, withEditorFilter } from "with-editor";
-import { magitConfirm } from "magit-base";
+import { applyOnRegion as ansiColorApplyOnRegion } from "ansi-color";
+import { magitConfirm, magitEllipsis, magitFormatTimeString } from "magit-base";
 import { magitGitExecutable, magitProcessGitArguments, magitProcessRecord, magitSetGitDebugReporter, magitToplevel, type GitArg } from "magit-git";
-import { magitBufferInfo, magitBufferName, magitProcessMode, magitRefresh, magitRepoName, magitSaveRepositoryBuffers, magitSetupBuffer } from "magit-mode";
+import { magitBufferInfo, magitBufferName, magitModeGetBuffers, magitProcessMode, magitRefresh, magitRepoName, magitSaveRepositoryBuffers, magitSetupBuffer } from "magit-mode";
 
 e8.defineFace({ name: "magit-process-ok", doc: "Face for zero exit-status.", attributes: { inherit: "magit-section-heading", weight: "bold" }, light: { foreground: "green" }, dark: { foreground: "green" } });
 e8.defineFace({ name: "magit-process-ng", doc: "Face for non-zero exit-status.", attributes: { inherit: "magit-section-heading", weight: "bold" }, light: { foreground: "red" }, dark: { foreground: "red" } });
@@ -61,6 +62,26 @@ e8.defineVariable({
   doc: "Regexps that find the line saying what went wrong in a failed git's output.",
   value: ["^\\*ERROR\\*: Canceled by user$", "^\\(?:error\\|fatal\\|git\\): \\(.*\\)$", "^\\(Cannot rebase:.*\\)$"],
 });
+e8.defineVariable({
+  name: "magit-process-apply-ansi-colors",
+  doc: "Whether and when to apply color escapes in the process buffer.\n\nMagit instructs Git to not colorize its output, but third-party Git hooks may do so anyway.  We recommend you figure out how to prevent such hooks from colorizing their output instead of customizing this option.\n\nIf nil (the default), do not apply color escape sequences.  If t, apply them once the subprocess has finished.  If filter, apply them as input arrives (which is more expensive and potentially fragile).  This is a footgun; starter-kits should leave this option untouched.",
+  value: null,
+});
+e8.defineVariable({
+  name: "magit-process-display-mode-line-error",
+  doc: "Whether Magit should retain and highlight process errors in the mode line.\n\nSee magit-show-process-buffer-hint for another way to display the complete output on demand.",
+  value: true,
+});
+e8.defineVariable({
+  name: "magit-process-error-tooltip-max-lines",
+  doc: "The number of lines for magit-process-error-lines to return.\n\nThese are displayed in a tooltip for mode-line-process errors.\n\nIf magit-process-error-tooltip-max-lines is nil, the tooltip displays the text of magit-process-error-summary instead.",
+  value: 20,
+});
+e8.defineVariable({
+  name: "magit-process-timestamp-format",
+  doc: "Format of timestamp for each process in the process buffer.\nIf non-nil, pass this to format-time-string when creating a process section in the process buffer, and insert the returned string in the heading of its section.",
+  value: null,
+});
 e8.defineVariable({ name: "magit-this-error", doc: "The error the last git command in this repository ended with, as the status buffer shows it.", value: null });
 e8.defineHook("magit-pre-call-git-hook", "Hook run before calling git synchronously.");
 e8.defineHook("magit-pre-start-git-hook", "Hook run before starting git in the background.");
@@ -79,6 +100,10 @@ export interface ProcessEntry {
   /** Its exit code, or undefined while it runs. */
   exit?: number;
   process?: string;
+  /** The timestamp its heading shows, as magit-process-timestamp-format made it when it started. */
+  timestamp?: string;
+  /** Its output with color escapes applied, and the output that was from. */
+  colored?: [string, e8.PropertizedString];
 }
 let nextId = 1;
 /** Each repository's commands, oldest first. */
@@ -96,7 +121,7 @@ function formatArguments(program: string, args: string[]): e8.PropertizedString 
   const heading = (s: string) => e8.propertize(s, { "font-lock-face": "magit-section-heading" });
   if (program === magitGitExecutable() && args.length > 0) {
     const global = ((e8.variable("magit-git-global-arguments") as string[] | null) ?? []).length;
-    return e8.concat(heading(e8.fileNameNondirectory(program)), " ", e8.propertize("…", { "font-lock-face": "magit-section-heading", "help-echo": args.slice(0, global).join(" ") }), " ", heading(args.slice(global).map(shellQuote).join(" ")));
+    return e8.concat(heading(e8.fileNameNondirectory(program)), " ", e8.propertize(magitEllipsis(), { "font-lock-face": "magit-section-heading", "help-echo": args.slice(0, global).join(" ") }), " ", heading(args.slice(global).map(shellQuote).join(" ")));
   }
   return e8.concat(heading(e8.fileNameNondirectory(program)), " ", heading(args.map(shellQuote).join(" ")));
 }
@@ -109,13 +134,38 @@ function insertProcessBuffer(dir: string): void {
       insertSection("process", String(p.id), p.exit === 0, () => {
         const code = p.exit === undefined ? "run " : e8.concat(e8.propertize(String(p.exit).padStart(3), { "font-lock-face": p.exit === 0 ? "magit-process-ok" : "magit-process-ng" }), " ");
         const where = p.pwd !== dir && p.pwd.startsWith(dir) ? `${p.pwd.slice(dir.length)} ` : p.pwd !== dir ? `${p.pwd} ` : "";
-        insertHeading(code, where, formatArguments(p.program, p.args), "\n");
-        if (p.output !== "") e8.insert(p.output.endsWith("\n") ? p.output : `${p.output}\n`);
+        insertHeading(code, p.timestamp !== undefined ? `${p.timestamp} ` : "", where, formatArguments(p.program, p.args), "\n");
+        if (p.output !== "") {
+          const output = p.output.endsWith("\n") ? p.output : `${p.output}\n`;
+          // Color escapes are applied as output arrives, or once git has finished, as magit-process-apply-ansi-colors says.
+          const ansi = e8.variable("magit-process-apply-ansi-colors");
+          e8.insert(ansi === "filter" || (ansi === true && p.exit !== undefined) ? ansiColored(p, output) : output);
+        }
         e8.insert("\n");
       });
     }
     e8.insert("\n");
   });
+}
+
+let ansiBuffers = 0;
+/** OUTPUT, ENTRY's, with its color escapes applied, as ansi-color-apply-on-region does: kept until the output changes. */
+function ansiColored(entry: ProcessEntry, output: string): e8.PropertizedString {
+  if (entry.colored?.[0] === output) return entry.colored[1];
+  const buffer = ` *magit-ansi-color-${++ansiBuffers}*`;
+  e8.getBufferCreate(buffer);
+  try {
+    const colored = e8.withCurrentBuffer(buffer, () => {
+      // Each section starts with no colors, as the text before it was already applied.
+      e8.insert(`\x1b[0m${output}`);
+      ansiColorApplyOnRegion(e8.pointMin(), e8.pointMax());
+      return e8.bufferSubstring(e8.pointMin(), e8.pointMax());
+    });
+    entry.colored = [output, colored];
+    return colored;
+  } finally {
+    e8.call("kill-buffer", buffer);
+  }
 }
 
 /** The repository's process buffer, made if missing, and shown unless NODISPLAY, as magit-process-buffer. */
@@ -146,14 +196,94 @@ function redisplay(dir: string): void {
 function processSetup(program: string, args: string[]): ProcessEntry {
   const pwd = e8.fileNameAsDirectory(e8.expandFileName(String(e8.variable("default-directory") ?? ".")));
   const dir = magitToplevel() ?? pwd;
-  const entry: ProcessEntry = { id: nextId++, dir, pwd, program, args, output: "" };
+  const format = e8.variable("magit-process-timestamp-format");
+  const timestamp = typeof format === "string" ? magitFormatTimeString(format, Date.now() / 1000) : undefined;
+  const entry: ProcessEntry = { id: nextId++, dir, pwd, program, args, output: "", timestamp };
   const log = [...(logs.get(dir) ?? []), entry];
   const max = Number(e8.variable("magit-process-log-max") ?? 32);
   while (log.length > max && log[0].exit !== undefined) log.shift();
   logs.set(dir, log);
   lastStarted = entry;
   redisplay(dir);
+  magitProcessSetModeLine(program, args, dir);
   return entry;
+}
+
+// The mode line, which shows the git command running, and the last one's error.
+
+/** Each repository's mode-line-process, and whether it is kept until the next command, as Magit keeps them repository-local. */
+const repositoryModeLines = new Map<string, { str?: e8.PropertizedString; inhibitUnset?: boolean }>();
+const repositoryModeLine = (dir: string) => repositoryModeLines.get(dir) ?? repositoryModeLines.set(dir, {}).get(dir)!;
+
+/** Sets mode-line-process to STR in each Magit buffer of the repository in DIR. */
+function setModeLineProcess(dir: string, str: e8.PropertizedString | undefined): void {
+  repositoryModeLine(dir).str = str;
+  for (const b of magitModeGetBuffers(dir)) {
+    e8.withCurrentBuffer(b, () => {
+      e8.makeLocalVariable("mode-line-process");
+      e8.setVariable("mode-line-process", str ?? null);
+    });
+  }
+}
+
+/** Shows the git command, without its arguments, in the mode line of the repository's Magit buffers, as magit-process-set-mode-line. */
+export function magitProcessSetModeLine(program: string, args: string[], dir = magitToplevel() ?? ""): void {
+  if (program === magitGitExecutable()) args = args.slice(((e8.variable("magit-git-global-arguments") as string[] | null) ?? []).length);
+  const text = `${e8.fileNameNondirectory(program)}${args.length > 0 ? ` ${args[0]}` : ""}`;
+  setModeLineProcess(dir, e8.concat(" ", e8.propertize(text, { "mouse-face": "highlight", "help-echo": "mouse-1: Show process buffer", "font-lock-face": "magit-mode-line-process" })));
+}
+
+/**
+ * Shows the command in the mode line with an error face, ERROR in its
+ * tooltip, as magit-process-set-mode-line-error-status: it stays until the
+ * next command, though the buffers are refreshed meanwhile.
+ */
+export function magitProcessSetModeLineErrorStatus(dir: string, error?: string): void {
+  const str = repositoryModeLine(dir).str;
+  if (str === undefined) return;
+  const tooltip = `${error !== undefined ? `${error}\n\n` : ""}mouse-1: Show process buffer`;
+  const text = String(str).slice(1);
+  setModeLineProcess(dir, e8.concat(" ", e8.propertize(text, { "mouse-face": "highlight", "help-echo": tooltip, "font-lock-face": "magit-mode-line-process-error" })));
+  repositoryModeLine(dir).inhibitUnset = true;
+  const enable = () => {
+    e8.removeHook("pre-command-hook", enable);
+    repositoryModeLine(dir).inhibitUnset = false;
+  };
+  e8.addHook("pre-command-hook", enable);
+}
+
+/** Takes the git command off the mode line, as magit-process-unset-mode-line. */
+export function magitProcessUnsetModeLine(dir = magitToplevel() ?? ""): void {
+  if (repositoryModeLine(dir).inhibitUnset) return;
+  setModeLineProcess(dir, undefined);
+}
+
+/** Takes an error status off the mode line, as magit-process-unset-mode-line-error-status does when a buffer is refreshed. */
+export function magitProcessUnsetModeLineErrorStatus(): void {
+  const dir = magitToplevel() ?? "";
+  const local = e8.variable("mode-line-process");
+  const status = local !== null && local !== undefined && local !== "" ? local : repositoryModeLine(dir).str;
+  if (status instanceof e8.PropertizedString && status.properties.some(([from, to, props]) => from <= 1 && 1 < to && props["font-lock-face"] === "magit-mode-line-process-error")) magitProcessUnsetModeLine(dir);
+}
+e8.addHook("magit-refresh-buffer-hook", magitProcessUnsetModeLineErrorStatus);
+// A Magit buffer made while git runs shows it too, as magit-mode sets mode-line-process.
+e8.addHook("magit-mode-hook", () => {
+  const str = repositoryModeLine(magitToplevel() ?? "").str;
+  if (str !== undefined) {
+    e8.makeLocalVariable("mode-line-process");
+    e8.setVariable("mode-line-process", str);
+  }
+});
+
+/**
+ * The first magit-process-error-tooltip-max-lines lines of ENTRY's
+ * output, trailing whitespace removed, as magit-process-error-tooltip; or
+ * undefined if that is not a positive number.
+ */
+export function magitProcessErrorTooltip(entry: ProcessEntry): string | undefined {
+  const max = e8.variable("magit-process-error-tooltip-max-lines");
+  if (typeof max !== "number" || !Number.isInteger(max) || max <= 0) return undefined;
+  return entry.output.split("\n").slice(0, max).join("\n").replace(/\s+$/, "");
 }
 
 /** The line saying what went wrong in ENTRY's output, as magit-process-error-summary. */
@@ -178,15 +308,19 @@ export function magitProcessErrorSummary(entry: ProcessEntry): string | undefine
 function processFinish(entry: ProcessEntry, exit: number, raise = false): number {
   entry.exit = exit;
   redisplay(entry.dir);
-  if (exit !== 0) {
+  if (exit === 0) magitProcessUnsetModeLine(entry.dir);
+  else {
     const msg = magitProcessErrorSummary(entry) ?? `git exited with code ${exit}`;
+    if (truthy(e8.variable("magit-process-display-mode-line-error"))) magitProcessSetModeLineErrorStatus(entry.dir, magitProcessErrorTooltip(entry) ?? msg);
+    else magitProcessUnsetModeLine(entry.dir);
     const status = e8.bufferList().find((b) => magitBufferInfo(b)?.kind === "status" && magitBufferInfo(b)?.dir === entry.dir);
     if (status) e8.withCurrentBuffer(status, () => e8.setVariable("magit-this-error", msg));
     const name = magitBufferName("magit-process-mode", entry.dir);
     const usage = truthy(e8.variable("magit-show-process-buffer-hint")) ? `Type $ to see "${name}" for details` : undefined;
     if (raise) e8.signal("magit-git-error", `${msg}${usage ? ` [${usage}]` : ""}`);
     e8.message(`Git error: ${msg}${usage ? ` [${usage}]` : ""}`);
-  } else {
+  }
+  if (exit === 0) {
     const status = e8.bufferList().find((b) => magitBufferInfo(b)?.kind === "status" && magitBufferInfo(b)?.dir === entry.dir);
     if (status) e8.withCurrentBuffer(status, () => e8.setVariable("magit-this-error", null));
   }

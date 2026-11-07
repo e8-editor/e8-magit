@@ -21,6 +21,7 @@
 
 import { truthy } from "subr";
 import { magitFileTrackedP, magitToplevel } from "magit-git";
+import { magitMessage } from "magit-base";
 
 // Options.
 
@@ -141,4 +142,17 @@ e8.addHook("magit-post-refresh-hook", magitAutoRevertBuffers);
 
 // On unless global-auto-revert-mode is or E8 runs in batch, as Magit's
 // :init-value and magit-auto-revert-mode--init-kludge have it.
-if (!on("global-auto-revert-mode") && !on("noninteractive")) e8.callWithPrefix(1, magitAutoRevertMode);
+/**
+ * Turns magit-auto-revert-mode on, saying so with magit-message, unless
+ * global-auto-revert-mode is on, as magit-auto-revert-mode--init-kludge.
+ */
+export function magitAutoRevertModeInitKludge(): void {
+  // The mode starts off here, so with global-auto-revert-mode it is left off.
+  if (on("global-auto-revert-mode")) return;
+  const start = Date.now();
+  magitMessage("Turning on magit-auto-revert-mode...");
+  e8.callWithPrefix(1, magitAutoRevertMode);
+  const elapsed = (Date.now() - start) / 1000;
+  magitMessage("Turning on magit-auto-revert-mode...done%s", elapsed > 0.2 ? ` (${elapsed.toFixed(3)}s, ${e8.bufferList().length} buffers checked)` : "");
+}
+if (!on("noninteractive")) magitAutoRevertModeInitKludge();

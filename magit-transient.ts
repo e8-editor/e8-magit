@@ -176,10 +176,45 @@ export function magitTransientReadRevision(prompt: string, initial?: string): st
   return magitCompletingRead(prompt, ["HEAD", ...magitListRefnames()], { requireMatch: "any", initialInput: initial, def: magitBranchOrCommitAtPoint() ?? magitGetCurrentBranch() }) ?? "";
 }
 
-/** Reads a gpg key to sign with, as magit-read-gpg-signing-key: the secret keys' ids, or one typed. */
-export function magitReadGpgSigningKey(prompt: string, initial?: string): string {
-  const r = e8.callProcess(["gpg", "--list-secret-keys", "--with-colons"]);
-  const keys = r.exit === 0 ? r.output.split("\n").filter((l) => l.startsWith("sec:")).map((l) => l.split(":")[4]) : [];
-  const def = magitGitString("config", "user.signingkey");
-  return magitCompletingRead(prompt, keys, { initialInput: initial, def }) ?? "";
+e8.defineVariable({
+  name: "magit-openpgp-default-signing-key",
+  doc: "Fingerprint of your default Openpgp key used for signing.\nIf the specified primary key has signing capacity then it is used as the value of the --gpg-sign argument without prompting, even when other such keys exist.  To be able to select another key you must then use a prefix argument.",
+  value: null,
+});
+
+/** The fingerprints of the secret keys that can sign, from gpg --list-secret-keys --with-colons OUTPUT. */
+export function magitGpgSigningKeys(output: string): string[] {
+  const keys: string[] = [];
+  let canSign = false;
+  let primary = false;
+  for (const line of output.split("\n")) {
+    const fields = line.split(":");
+    if (fields[0] === "sec") {
+      // The primary key's capabilities, the whole key's in capitals.
+      canSign = /S/.test(fields[11] ?? "");
+      primary = true;
+    } else if (fields[0] === "fpr" && primary) {
+      if (canSign) keys.push(fields[9]);
+      primary = false;
+    } else if (fields[0] === "ssb") primary = false;
+  }
+  return keys;
+}
+
+/**
+ * Reads a gpg key to sign with, as magit-read-gpg-signing-key: without a
+ * prefix argument, the only key that can sign, or
+ * magit-openpgp-default-signing-key if it is one of them, without asking.
+ */
+export function magitReadGpgSigningKey(prompt: string, initial?: string, keys?: string[]): string {
+  if (keys === undefined) {
+    const r = e8.callProcess(["gpg", "--list-secret-keys", "--with-colons"]);
+    keys = r.exit === 0 ? magitGpgSigningKeys(r.output) : [];
+  }
+  const def = e8.variable("magit-openpgp-default-signing-key");
+  if (!prefixArgP()) {
+    if (keys.length === 1) return keys[0];
+    if (typeof def === "string" && keys.includes(def)) return def;
+  }
+  return e8.completingRead(prompt, keys, { initial, history: "magit-gpg-secret-key-hist" });
 }

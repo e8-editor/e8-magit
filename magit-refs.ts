@@ -34,7 +34,7 @@ import {
   magitRevVerify,
 } from "magit-git";
 import { magitBufferName, magitMode, magitRefresh, magitSetupBuffer } from "magit-mode";
-import { inserters, magitShowCommit, runSectionHook } from "magit-diff";
+import { inserters, magitShowCommit, magitUseBufferArguments, magitUseBufferArgumentsBuffer, runSectionHook } from "magit-diff";
 import { magitLogWashLog, magitLogWashSummary } from "magit-log";
 import { magitLogFormatMargin, magitMakeMarginOverlay, magitRightMarginActive, magitSetBufferMargins } from "magit-margin";
 import { magitTransientReadRevision } from "magit-transient";
@@ -96,11 +96,22 @@ export function magitRefsRefreshBuffer(): void {
 
 // Commands.
 
-/** The arguments the references buffer uses, as magit-show-refs-arguments. */
-export function magitShowRefsArguments(): string[] {
+/**
+ * The arguments the references buffer uses, as magit-show-refs-arguments:
+ * the menu's, the current references buffer's, or another's as
+ * USE-BUFFER-ARGS allows, by default magit-direct-use-buffer-arguments.
+ */
+export function magitShowRefsArguments(useBufferArgs = "direct"): string[] {
   if (String(e8.variable("transient-current-command") ?? "") === "magit-show-refs") return transientArgs("magit-show-refs");
+  return refsBufferArguments(useBufferArgs) ?? transientArgs("magit-show-refs");
+}
+
+/** The current references buffer's arguments, or another's as USE-BUFFER-ARGS allows. */
+function refsBufferArguments(useBufferArgs: string): string[] | undefined {
   if (String(e8.variable("major-mode")) === "magit-refs-mode") return bufferArgs();
-  return transientArgs("magit-show-refs");
+  const buffer = magitUseBufferArgumentsBuffer("magit-refs-mode", magitUseBufferArguments(useBufferArgs));
+  const args = buffer && e8.bufferLocalValue("magit-buffer-arguments", buffer);
+  return Array.isArray(args) ? (args as string[]) : undefined;
 }
 
 export const magitShowRefsHead = e8.defineCommand({
@@ -134,6 +145,7 @@ const readRefSort = (prompt: string, initial?: string): string => magitCompletin
 
 export const magitShowRefsMenu = transientDefinePrefix("magit-show-refs-menu", {
   doc: "List and compare references in a dedicated buffer.",
+  value: () => refsBufferArguments("prefix") ?? [],
   groups: [
     {
       description: "Arguments",

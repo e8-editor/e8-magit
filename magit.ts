@@ -28,10 +28,10 @@
 // Free Software Foundation, either version 3 of the License, or (at your
 // option) any later version.
 
-import { currentSection, insertHeading, insertRoot, insertSection, magitSectionMode, sectionAt, sections, show, type Section } from "magit-section";
+import { currentSection, magitRegionValues, insertHeading, insertRoot, insertSection, magitSectionMode, sectionAt, sections, show, type Section } from "magit-section";
 import { transientArgs, transientDefinePrefix, type Group } from "transient";
 import { forwardLine, PerBuffer, truthy } from "subr";
-import { magitCompletingRead, magitCompletingReadMultiple, magitFormatTimeString, prefixArgP } from "magit-base";
+import { magitCompletingRead, magitCompletingReadMultiple, magitConfirm, magitEllipsis, magitFormatTimeString, magitReadCharCase, magitReadStringNs, magitYOrNP, prefixArgP } from "magit-base";
 import {
   magitCommitP,
   magitFileAtPoint,
@@ -50,6 +50,17 @@ import {
   magitRevFormat,
   magitRevParse,
   magitSet,
+  magitAnythingModifiedP,
+  magitBranchAtPoint,
+  magitBranchP,
+  magitLocalBranchAtPoint,
+  magitRemoteBranchP,
+  magitSplitBranchName,
+  magitAnythingStagedP,
+  magitAnythingUnmergedP,
+  magitAnythingUnstagedP,
+  magitCommitAtPoint,
+  magitRevAncestorP,
   magitFormatRefLabels,
   magitGetCurrentBranch,
   magitGetPushRemote,
@@ -91,6 +102,9 @@ import {
   magitBrowseThing,
   magitCopyThing,
   magitEditThing,
+  magitDisplayBufferInhibitSameWindow,
+  magitModeBuryBufferFn,
+  magitRunHooks,
 } from "magit-mode";
 import {
   magitDiffArguments,
@@ -119,11 +133,11 @@ import {
   magitUnstageCommand,
   magitUnstageFilesCommand,
 } from "magit-apply";
-import { magitLogSelect } from "magit-log";
+import { magitLogPrefixValue, magitLogSelect } from "magit-log";
 import "magit-bundle";
 import "git-rebase";
 import "git-commit";
-import { magitAm, magitCherryApply, magitCherryPick, magitRebase, magitRebaseInteractiveAssert, magitRevert, magitRevertNoCommit } from "magit-sequence";
+import { magitAm, magitCherryApply, magitCherryPick, magitListPublishingBranches, magitRebase, magitRebaseInteractive1, magitRebaseInteractiveAssert, magitRevert, magitRevertNoCommit } from "magit-sequence";
 import { magitTag } from "magit-tag";
 import { magitBisect } from "magit-bisect";
 import { magitShowRefs } from "magit-refs";
@@ -251,30 +265,141 @@ export const magitVisitThing = e8.defineCommand({
 
 // Committing, after magit-commit.el and git-commit.el.
 
+e8.defineVariable({ name: "magit-commit-ask-to-stage", doc: "Whether to ask to stage everything when committing and nothing is staged.\n\nnil: never ask; verbose: show the unstaged changes and ask; t: ask; stage: stage everything without asking.", value: "verbose" });
+e8.defineVariable({ name: "magit-commit-show-diff", doc: "Whether the relevant diff is automatically shown when committing.", value: true });
+e8.defineVariable({
+  name: "magit-commit-diff-inhibit-same-window",
+  doc: "Whether to inhibit use of same window when showing diff while committing.\n\nWhen writing a commit, then a diff of the changes to be committed is automatically shown.  The idea is that the diff is shown in a different window of the same frame and for most users that just works.  In other words most users can completely ignore this option because its value doesn't make a difference for them.\n\nHowever for users who configured Emacs to never create a new window even when the package explicitly tries to do so, then displaying two new buffers necessarily means that the first is immediately replaced by the second.  In our case the message buffer is immediately replaced by the diff buffer, which is of course highly undesirable.\n\nA workaround is to suppress this user configuration in this particular case.  Users have to explicitly opt-in by toggling this option.  We cannot enable the workaround unconditionally because that again causes issues for other users: if the frame is too tiny or the relevant settings too aggressive, then the diff buffer would end up being displayed in a new frame.\n\nAlso see https://github.com/magit/magit/issues/4132.",
+  value: false,
+});
+e8.defineVariable({ name: "magit-commit-extend-override-date", doc: "Whether using magit-commit-extend changes the committer date.", value: true });
+e8.defineVariable({ name: "magit-commit-reword-override-date", doc: "Whether using magit-commit-reword changes the committer date.", value: true });
+e8.defineVariable({
+  name: "magit-commit-squash-confirm",
+  doc: "Whether the commit targeted by squash and fixup has to be confirmed.\nWhen non-nil then the commit at point (if any) is used as default choice, otherwise it has to be confirmed.  This option only affects magit-commit-squash and magit-commit-fixup.  The \"instant\" variants always require confirmation because making an error while using those is harder to recover from.",
+  value: true,
+});
+e8.defineVariable({
+  name: "magit-post-commit-hook",
+  doc: "Hook run after creating a commit without the user editing a message.\n\nThis hook is run by magit-refresh if this-command is a member of magit-post-commit-hook-commands.  This only includes commands named magit-commit-* that do *not* require that the user edits the commit message in a buffer and then finishes by pressing C-c C-c.\n\nAlso see git-commit-post-finish-hook.",
+  value: [],
+});
+e8.defineVariable({
+  name: "magit-post-commit-hook-commands",
+  doc: "The commands after which magit-post-commit-hook runs, once git is done.",
+  value: ["magit-commit-extend", "magit-commit-fixup", "magit-commit-augment", "magit-commit-instant-fixup", "magit-commit-instant-squash"],
+});
+
+/** Runs magit-post-commit-hook after a refresh no command runs, if the last command made a commit without a message edited, as magit-run-post-commit-hook. */
+function magitRunPostCommitHook(): void {
+  const commands = e8.variable("magit-post-commit-hook-commands");
+  const last = e8.lastCommand();
+  if (e8.thisCommand() === undefined && last !== undefined && Array.isArray(commands) && commands.some((c) => String(c) === last)) magitRunHooks("magit-post-commit-hook");
+}
+e8.defun("magit-run-post-commit-hook", magitRunPostCommitHook);
+e8.addHook("magit-post-refresh-hook", magitRunPostCommitHook);
+
 /** The diff a commit makes, shown beside its message, as magit-commit-diff; the buffer, to take away when done. */
 let commitDiff: string | undefined;
-/** Whether the commit being written amends the last one, for the diff to show. */
-let amending = false;
+/** The command that started the commit being written in each repository, as Magit's repository-local this-commit-command. */
+const thisCommitCommand = new Map<string, string>();
+const setThisCommitCommand = (command: string): void => void thisCommitCommand.set(magitToplevel() ?? "", command);
 
-/** Runs git commit with ARGS, its message written in COMMIT_EDITMSG through with-editor, as magit-commit-create. */
-function editCommit(args: string[], amend = false): void {
-  amending = amend;
-  runGitAsync(["commit", ...args], "Committing", true);
+/**
+ * The arguments to commit with, or undefined to not commit, as
+ * magit-commit-assert: with something staged, or ARGS that commit
+ * anyway, ARGS; else with a rebase in progress offers to continue it,
+ * with a merge in progress checks for conflicts, and else asks to stage
+ * everything as magit-commit-ask-to-stage says.  NOPATCH commits
+ * whatever there is; STRICT counts only --all as committing anyway.
+ */
+function magitCommitAssert(args: string[], nopatch = false, strict = false): string[] | undefined {
+  const orArgs = (): string[] => (args.length > 0 ? args : ["--"]);
+  if (nopatch) return orArgs();
+  if (
+    magitAnythingStagedP() ||
+    (magitAnythingUnstagedP() && args.includes("--all")) ||
+    (!strict && ["--amend", "--allow-empty", "--reset-author", "--signoff"].some((a) => args.includes(a))) ||
+    (!strict && args.some((a) => a.startsWith("--author=") || a.startsWith("--date=")))
+  )
+    return orArgs();
+  if (magitRebaseInProgressP() && !magitAnythingUnstagedP() && e8.yOrNP("Nothing staged.  Continue in-progress rebase? ")) {
+    e8.call("magit-rebase-continue" as e8.CommandName);
+    return undefined;
+  }
+  if (e8.fileExistsP(e8.expandFileName("MERGE_MSG", magitGitdir()))) {
+    if (magitAnythingUnmergedP()) e8.userError("Unresolved conflicts");
+    if (magitAnythingUnstagedP() && !e8.yOrNP("Proceed with merge despite unstaged changes? ")) e8.userError("Abort");
+    return orArgs();
+  }
+  if (!magitAnythingUnstagedP()) e8.userError("Nothing staged (or unstaged)");
+  const ask = e8.variable("magit-commit-ask-to-stage");
+  if (!truthy(ask)) return e8.userError("Nothing staged");
+  if (ask === "verbose") e8.call("magit-diff-unstaged" as e8.CommandName);
+  let result: string[] | undefined;
+  if (ask === "stage" || e8.yOrNP("Nothing staged.  Commit all uncommitted changes? ")) {
+    setThisCommitCommand("magit-commit--all");
+    result = ["--all", ...orArgs()];
+  }
+  if (ask === "verbose" && e8.derivedModeP("magit-diff-mode")) magitModeBuryBufferFn();
+  return result;
 }
 
-/** Shows what the commit makes beside its message, as magit-commit-diff does when COMMIT_EDITMSG is visited. */
+/** Asks before modifying a commit already published, as magit-commit-amend-assert. */
+export function magitCommitAmendAssert(commit?: string): void {
+  const branches = magitListPublishingBranches(commit);
+  if (branches.length === 0) return;
+  const m1 = "This commit has already been published to ";
+  const m2 = ".\nDo you really want to modify it";
+  magitConfirm("amend-published", `${m1}%s${m2}`, `${m1}%d public branches${m2}`, branches);
+}
+e8.defun("magit-commit-amend-assert", (commit?: string | null) => magitCommitAmendAssert(commit ?? undefined));
+
+/** Runs git commit with ARGS, its message written in COMMIT_EDITMSG through with-editor, as magit-run-git-with-editor; ENV adds to its environment. */
+function editCommit(args: string[], env: { [name: string]: string } = {}): void {
+  runGitAsync(["commit", ...args], "Committing", true, env);
+}
+
+/** The environment that keeps the committer date of HEAD, unless OVERRIDE-DATE, as magit-commit-extend and magit-commit-reword set it. */
+const keepCommitterDate = (overrideDate: boolean): { [name: string]: string } => (overrideDate ? {} : { GIT_COMMITTER_DATE: magitRevFormat("%cD") ?? "" });
+
+/** Whether DISPLAY-FUNCTION would show the diff without the selected window, for magit-commit-diff-inhibit-same-window. */
+e8.defun("magit--display-buffer-inhibit-same-window", (buffer: string) => magitDisplayBufferInhibitSameWindow(buffer));
+
+/**
+ * Shows what the commit makes beside its message, as magit-commit-diff
+ * does when COMMIT_EDITMSG is visited, with magit-commit-show-diff: the
+ * staged changes, or what the command that started the commit makes, as
+ * magit-commit-diff-1 works it out.
+ */
 function showCommitDiff(): void {
   if (!/\/COMMIT_EDITMSG$/.test(e8.bufferFileName() ?? "")) return;
+  const top = magitToplevel() ?? "";
+  const command = thisCommitCommand.get(top) ?? (magitRebaseInProgressP() ? "magit-commit--rebase" : undefined);
+  if (!truthy(e8.variable("magit-commit-show-diff"))) return;
   const window = e8.selectedWindow();
-  const staged = amending ? gitOutput(["diff", "--quiet", "HEAD^", "--cached"]) : gitOutput(["diff", "--cached", "--quiet"]);
-  if (staged.exit === 0) return;
+  e8.message("Diffing changes to be committed (C-g to abort diffing)");
+  const staged = magitAnythingStagedP();
+  const unstaged = magitAnythingUnstagedP();
+  const pending = e8.expandFileName("rebase-merge/rewritten-pending", magitGitdir());
+  const squash = e8.fileExistsP(pending) ? e8.readTextFile(pending).split("\n").filter((l) => l !== "").length : undefined;
+  let rev: string | undefined;
+  let arg: string | undefined = "--cached";
+  if (command === "magit-commit--rebase" && squash !== undefined) rev = `HEAD~${squash}`;
+  else if (command === "magit-commit-amend") rev = "HEAD^";
+  else if (!staged && !unstaged && command === "magit-commit--allow-empty") [rev, arg] = ["HEAD", undefined];
+  else if (command === "magit-commit-reword" || (!staged && !unstaged)) [rev, arg] = ["HEAD^..HEAD", undefined];
+  else if (unstaged && command === "magit-commit--all") [rev, arg] = ["HEAD", undefined];
   const [args] = magitDiffArguments();
-  commitDiff = e8.letBind({ "magit-display-buffer-noselect": true }, () => magitDiffSetupBuffer(amending ? "HEAD^" : undefined, "--cached", args, [], amending ? "committed" : "staged"));
-  e8.selectWindow(window);
+  const bindings: { [variable: string]: e8.Value } = { "magit-inhibit-save-previous-winconf": "unset", "magit-display-buffer-noselect": true };
+  if (truthy(e8.variable("magit-commit-diff-inhibit-same-window"))) bindings["magit-display-buffer-function"] = "magit--display-buffer-inhibit-same-window";
+  commitDiff = e8.letBind(bindings, () => magitDiffSetupBuffer(rev, arg, args, [], rev === "HEAD" ? "staged" : rev === "HEAD^..HEAD" ? "committed" : "undefined"));
+  if (e8.windowList().includes(window)) e8.selectWindow(window);
 }
 
-/** Takes the commit's diff away once the message is done with. */
+/** Takes the commit's diff away once the message is done with, and forgets the command, as magit-commit--reset-command. */
 function hideCommitDiff(): void {
+  thisCommitCommand.delete(magitToplevel() ?? "");
   if (!commitDiff || !e8.bufferLiveP(e8.getBuffer(commitDiff))) return;
   const w = e8.windowList().find((x) => e8.windowBuffer(x) === commitDiff);
   if (w !== undefined && e8.windowList().length > 1) e8.deleteWindow(w);
@@ -295,33 +420,52 @@ const commitArgs = (): string[] => transientArgs("magit-commit");
 
 const commitCreate = e8.defineCommand({
   name: "magit-commit-create",
-  doc: "Create a new commit on HEAD, writing its message in a buffer.",
+  doc: "Create a new commit.",
   run: () => {
     const args = commitArgs();
-    if (!args.includes("--all") && !args.includes("--allow-empty") && gitOutput(["diff", "--cached", "--quiet"]).exit === 0) {
-      if (gitOutput(["diff", "--quiet"]).exit !== 0 && e8.yOrNP("Nothing staged.  Commit all uncommitted changes? ")) args.push("--all");
-      else e8.userError("Nothing staged");
-    }
-    editCommit(args);
+    setThisCommitCommand(args.includes("--all") ? "magit-commit--all" : args.includes("--allow-empty") ? "magit-commit--allow-empty" : "magit-commit-create");
+    const asserted = magitCommitAssert(args);
+    if (asserted) editCommit(asserted);
   },
 });
 
 const commitAmend = e8.defineCommand({
   name: "magit-commit-amend",
-  doc: "Amend the last commit, with the staged changes and an edited message.",
-  run: () => editCommit(["--amend", ...commitArgs()], true),
+  doc: "Amend staged changes (if any) to the last commit, and edit its message.",
+  run: () => {
+    magitCommitAmendAssert();
+    setThisCommitCommand("magit-commit-amend");
+    editCommit(["--amend", ...commitArgs()]);
+  },
 });
+
+/** Whether to override the committer date: OPTION, or its opposite with a prefix argument, as magit-commit-extend and magit-commit-reword read it. */
+const overrideDate = (option: string, prefix: e8.Value): boolean => (truthy(prefix) ? !truthy(e8.variable(option)) : truthy(e8.variable(option)));
 
 const commitExtend = e8.defineCommand({
   name: "magit-commit-extend",
-  doc: "Amend the last commit with the staged changes, keeping its message.",
-  run: () => void runGit(["commit", "--amend", "--no-edit", ...commitArgs()]),
+  doc: "Amend staged changes to the last commit, without editing its message.\n\nWith a prefix argument do not update the committer date; without an argument update it.  The option magit-commit-extend-override-date can be used to inverse the meaning of the prefix argument.",
+  params: [{ name: "prefix", kind: "prefix" }],
+  run: (prefix: e8.Value) => {
+    const args = magitCommitAssert(commitArgs());
+    if (!args) return;
+    magitCommitAmendAssert();
+    setThisCommitCommand("magit-commit-extend");
+    editCommit(["--amend", "--no-edit", ...args], keepCommitterDate(overrideDate("magit-commit-extend-override-date", prefix)));
+  },
 });
 
 const commitReword = e8.defineCommand({
   name: "magit-commit-reword",
-  doc: "Reword the last commit, ignoring the staged changes.",
-  run: () => editCommit(["--amend", "--only", ...commitArgs()], true),
+  doc: "Reword the message of the last commit, without amending its tree.\n\nWith a prefix argument do not update the committer date; without an argument update it.  The option magit-commit-reword-override-date can be used to inverse the meaning of the prefix argument.",
+  params: [{ name: "prefix", kind: "prefix" }],
+  run: (prefix: e8.Value) => {
+    magitCommitAmendAssert();
+    const args = commitArgs();
+    if (!args.includes("--allow-empty")) args.unshift("--allow-empty");
+    setThisCommitCommand("magit-commit-reword");
+    editCommit(["--amend", "--only", ...args], keepCommitterDate(overrideDate("magit-commit-reword-override-date", prefix)));
+  },
 });
 
 
@@ -483,25 +627,105 @@ const branchCheckout = e8.defineCommand({
   },
 });
 
+e8.defineVariable({
+  name: "magit-branch-read-upstream-first",
+  doc: "Whether to read upstream before name of new branch when creating a branch.\n\nnil      Read the branch name first.\nt        Read the upstream first.\nfallback Read the upstream first, but if it turns out that the chosen value is not a valid upstream (because it cannot be resolved as an existing revision), then treat it as the name of the new branch and continue by reading the upstream next.",
+  value: true,
+});
+e8.defineVariable({
+  name: "magit-branch-prefer-remote-upstream",
+  doc: "Whether to favor remote upstreams when creating new branches.\n\nWhen a new branch is created, then the branch, commit, or stash at point is suggested as the default starting point of the new branch, or if there is no such revision at point the current branch.  In either case the user may choose another starting point.\n\nIf the chosen starting point is a branch, then it may also be set as the upstream of the new branch, depending on the value of the Git variable branch.autoSetupMerge.  By default this is done for remote branches, but not for local branches.\n\nYou might prefer to always use some remote branch as upstream.  If the chosen starting point is (1) a local branch, (2) whose name matches a member of the value of this option, (3) the upstream of that local branch is a remote branch with the same name, and (4) that remote branch can be fast-forwarded to the local branch, then the chosen branch is used as starting point, but its own upstream is used as the upstream of the new branch.\n\nMembers of this option's value are treated as branch names that have to match exactly unless they contain a character that makes them invalid as a branch name.  Recommended characters to use to trigger interpretation as a regexp are \"*\" and \"^\".  Some other characters which you might expect to be invalid, actually are not, e.g., \".+$\" are all perfectly valid.  More precisely, if git check-ref-format --branch STRING exits with a non-zero status, then treat STRING as a regexp.\n\nAssuming the chosen branch matches these conditions you would end up with with e.g.:\n\n  feature --upstream--> origin/master\n\ninstead of\n\n  feature --upstream--> master --upstream--> origin/master\n\nWhich you prefer is a matter of personal preference.  If you do prefer the former, then you should add branches such as \"master\", \"next\", and \"maint\" to the value of this options.",
+  value: [],
+});
+e8.defineVariable({
+  name: "magit-branch-adjust-remote-upstream-alist",
+  doc: "Alist of upstreams to be used when branching from remote branches.\n\nWhen creating a local branch from an ephemeral branch located on a remote, e.g., a feature or hotfix branch, then that remote branch should usually not be used as the upstream branch, since the push-remote already allows accessing it and having both the upstream and the push-remote reference the same related branch would be wasteful.  Instead a branch like \"maint\" or \"master\" should be used as the upstream.\n\nThis option allows specifying the branch that should be used as the upstream when branching certain remote branches.  The value is an alist of the form ((UPSTREAM . RULE)...).  The first element is used whose UPSTREAM exists and whose RULE matches the name of the new branch.  Subsequent elements are ignored.\n\nUPSTREAM is the branch to be used as the upstream for branches specified by RULE.  It can be a local or a remote branch.\n\nRULE can either be a regular expression, matching branches whose upstream should be the one specified by UPSTREAM.  Or it can be a list of the only branches that should *not* use UPSTREAM; all other branches will.  Matching is done after stripping the remote part of the name of the branch that is being branched from.\n\nIf you use a finite set of non-ephemeral branches across all your repositories, then you might use something like:\n\n  ((\"origin/master\" . (\"master\" \"next\" \"maint\")))\n\nOr if the names of all your ephemeral branches contain a slash, at least in some repositories, then a good value could be:\n\n  ((\"origin/master\" . \"/\"))\n\nUPSTREAM can be a local branch:\n\n  ((\"master\" . (\"master\" \"next\" \"maint\")))\n\nIf you use remote branches as UPSTREAM, then you might also want to set magit-branch-prefer-remote-upstream to a non-nil value.  However, I recommend that you use local branches as UPSTREAM.",
+  value: [],
+});
+e8.defineVariable({
+  name: "magit-branch-rename-push-target",
+  doc: "Whether the push-remote setup is preserved when renaming a branch.\n\nThe command magit-branch-rename renames a branch named OLD to NEW.  This option controls how much of the push-remote setup is preserved when doing so.\n\nWhen nil, then preserve nothing and unset branch.OLD.pushRemote.\n\nWhen local-only, then first set branch.NEW.pushRemote to the same value as branch.OLD.pushRemote, provided the latter is actually set and unless the former already has another value.\n\nWhen t, then rename the branch named OLD on the remote specified by branch.OLD.pushRemote to NEW, provided OLD exists on that remote and unless NEW already exists on the remote.\n\nWhen forge-only and the forge package is available, then behave like t if the remote points to a repository on a forge (currently Github or Gitlab), otherwise like local-only.",
+  value: true,
+});
+e8.defineVariable({
+  name: "magit-branch-direct-configure",
+  doc: "Whether the command magit-branch shows Git variables.\nWhen set to nil, no variables are displayed by this transient command, instead the sub-transient magit-branch-configure has to be used to view and change branch related variables.",
+  value: true,
+});
+
+/**
+ * The upstream of local BRANCH, when it tracks a remote branch of the same
+ * name that can be fast-forwarded to it and FORCE or
+ * magit-branch-prefer-remote-upstream names it, as
+ * magit-get-indirect-upstream-branch.
+ */
+export function magitGetIndirectUpstreamBranch(branch: string, force = false): string | undefined {
+  const remote = magitGet("branch", branch, "remote");
+  if (!remote || remote === ".") return undefined;
+  const prefer = e8.variable("magit-branch-prefer-remote-upstream");
+  const optedIn =
+    force ||
+    (Array.isArray(prefer) &&
+      prefer.some((p) => {
+        const name = String(p);
+        return gitOutput(["check-ref-format", "--branch", name]).exit === 0 ? name === branch : e8.stringMatch(name, branch) !== undefined;
+      }));
+  if (!optedIn) return undefined;
+  const upstream = upstreamOf(branch);
+  return upstream && upstream.slice(remote.length + 1) === branch && magitRevAncestorP(upstream, branch) ? upstream : undefined;
+}
+
+/**
+ * Sets the upstream of BRANCH, made at START-POINT, to the indirect
+ * upstream of START-POINT, or for a remote START-POINT to what
+ * magit-branch-adjust-remote-upstream-alist names, as
+ * magit-branch-maybe-adjust-upstream.
+ */
+export function magitBranchMaybeAdjustUpstream(branch: string, startPoint: string): void {
+  let upstream = upstreamOf(branch) ? magitGetIndirectUpstreamBranch(startPoint) : undefined;
+  if (!upstream && magitRemoteBranchP(startPoint)) {
+    const name = magitSplitBranchName(startPoint)[1];
+    const alist = e8.variable("magit-branch-adjust-remote-upstream-alist");
+    for (const entry of Array.isArray(alist) ? alist : []) {
+      if (!Array.isArray(entry)) continue;
+      // (UPSTREAM . RULE): RULE a regexp, or a list of the branches not to use UPSTREAM.
+      const [up, ...rest] = entry as e8.Value[];
+      const rule = rest.length === 1 && typeof rest[0] === "string" ? rest[0] : rest.length === 1 && Array.isArray(rest[0]) ? rest[0] : rest;
+      const matches = Array.isArray(rule) ? !rule.map(String).includes(name) : e8.stringMatch(String(rule), name) !== undefined;
+      if (magitBranchP(String(up)) && matches) {
+        upstream = String(up);
+        break;
+      }
+    }
+  }
+  if (upstream) gitOutput(["branch", `--set-upstream-to=${upstream}`, branch]);
+}
+
+const branchArgs = (): string[] => transientArgs("magit-branch");
+
 const branchCreateCheckout = e8.defineCommand({
   name: "magit-branch-and-checkout",
-  doc: "Create a branch starting at a commit and check it out.",
+  doc: "Create and checkout BRANCH at branch or revision START-POINT.",
   run: () => {
-    const start = readBranch("Create and checkout branch starting at", [...localBranches(), ...remoteBranches()], currentBranch());
-    const name = e8.readString("Name for new branch: ");
-    if (name === "") e8.userError("No name given");
-    runGit(["checkout", "-b", name, start]);
+    const [branch, start] = magitBranchReadArgs("Create and checkout branch");
+    if (/^stash@\{[0-9]+\}$/.test(start)) {
+      runGit(["stash", "branch", branch, start]);
+      return;
+    }
+    runGit(["checkout", ...branchArgs(), "-b", branch, start]);
+    magitBranchMaybeAdjustUpstream(branch, start);
+    refreshAll();
   },
 });
 
 const branchCreate = e8.defineCommand({
   name: "magit-branch-create",
-  doc: "Create a branch starting at a commit, without checking it out.",
+  doc: "Create BRANCH at branch or revision START-POINT.",
   run: () => {
-    const start = readBranch("Create branch starting at", [...localBranches(), ...remoteBranches()], currentBranch());
-    const name = e8.readString("Name for new branch: ");
-    if (name === "") e8.userError("No name given");
-    runGit(["branch", name, start]);
+    const [branch, start] = magitBranchReadArgs("Create branch");
+    runGit(["branch", branch, start]);
+    magitBranchMaybeAdjustUpstream(branch, start);
+    refreshAll();
   },
 });
 
@@ -516,12 +740,32 @@ const branchDelete = e8.defineCommand({
 
 const branchRename = e8.defineCommand({
   name: "magit-branch-rename",
-  doc: "Rename a branch.",
-  run: () => {
-    const old = readBranch("Rename branch", localBranches(), currentBranch());
-    const name = e8.readString(`Rename branch '${old}' to: `);
-    if (name === "") e8.userError("No name given");
-    runGit(["branch", "-m", old, name]);
+  doc: "Rename the branch named OLD to NEW.\n\nWith a prefix argument FORCE, rename even if a branch named NEW already exists.\n\nIf branch.OLD.pushRemote is set, then unset it.  Depending on the value of magit-branch-rename-push-target (which see) maybe set branch.NEW.pushRemote and maybe rename the push-target on the remote.",
+  params: [{ name: "force", kind: "prefix" }],
+  run: (prefix: e8.Value) => {
+    let old = readBranch("Rename branch", localBranches(), magitLocalBranchAtPoint() ?? currentBranch());
+    const name = magitReadStringNs(`Rename branch '${old}' to`, undefined, "magit-revision-history");
+    const force = truthy(prefix);
+    old = old.replace(/^heads\//, "");
+    if (old === name) e8.userError("Old and new branch names are the same");
+    gitOutput(["branch", force ? "-M" : "-m", old, name]);
+    const pushTarget = e8.variable("magit-branch-rename-push-target");
+    if (truthy(pushTarget)) {
+      const remote = magitGetPushRemote(old);
+      const oldSpecified = magitGet("branch", old, "pushRemote");
+      const newSpecified = magitGet("branch", name, "pushRemote");
+      if (oldSpecified && (force || !newSpecified)) magitSet(oldSpecified, "branch", name, "pushRemote");
+      // forge-only is local-only here, as E8 has no forge.
+      if (magitGetPushRemote(name) === remote && pushTarget !== "local-only" && pushTarget !== "forge-only") {
+        const oldTarget = magitGetPushBranch(old, true);
+        const newTarget = magitGetPushBranch(name, true);
+        const target = magitGetPushRemote(name);
+        if (oldTarget && !newTarget && target && magitYOrNP(`Also rename ${JSON.stringify(old)} to ${JSON.stringify(name)} on "${target}"?`))
+          gitOutput(["push", "-v", target, `${oldTarget}:refs/heads/${name}`, `:refs/heads/${old}`]);
+      }
+    }
+    magitSet(undefined, "branch", old, "pushRemote");
+    refreshAll();
   },
 });
 
@@ -692,29 +936,28 @@ const resetCommand = (mode: string, doc: string) =>
     },
   });
 
-/** The stash at point, or one read. */
-function stashAt(prompt: string): string {
-  const s = currentSection();
-  if (s?.type === "stash") return String(s.value);
-  return magitReadStash(prompt);
-}
-
 const stashBoth = e8.defineCommand({
   name: "magit-stash-both",
   doc: "Stash the changes in the index and the working tree, with a message.",
   run: () => {
-    const msg = e8.readString(`Stash message (default: On ${currentBranch() ?? "HEAD"}: ...): `);
+    const msg = e8.readString(`Stash message (default: On${magitEllipsis()}:${magitEllipsis()}): `);
     runGit(["stash", "push", ...transientArgs("magit-stash"), ...(msg ? ["-m", msg] : [])]);
   },
 });
-const stashApply = e8.defineCommand({ name: "magit-stash-apply", doc: "Apply a stash to the working tree.", run: () => void runGit(["stash", "apply", stashAt("Apply stash")]) });
-const stashPop = e8.defineCommand({ name: "magit-stash-pop", doc: "Apply a stash and remove it.", run: () => void runGit(["stash", "pop", stashAt("Pop stash")]) });
+// The stash at point is taken, or asked about, as magit-dwim-selection says for each command, as magit-read-stash does.
+const stashApply = e8.defineCommand({ name: "magit-stash-apply", doc: "Apply a stash to the working tree.", run: () => void runGit(["stash", "apply", magitReadStash("Apply stash")]) });
+const stashPop = e8.defineCommand({ name: "magit-stash-pop", doc: "Apply a stash to the working tree, on success remove it from the stash list.", run: () => void runGit(["stash", "pop", magitReadStash("Pop stash")]) });
 const stashDrop = e8.defineCommand({
   name: "magit-stash-drop",
-  doc: "Remove a stash.",
+  doc: "Remove a stash from the stash list.\nWhen the region is active offer to drop all contained stashes.",
   run: () => {
-    const s = stashAt("Drop stash");
-    if (e8.yOrNP(`Drop ${s}? `)) runGit(["stash", "drop", s]);
+    const values = magitRegionValues("stash") as string[] | undefined;
+    const stashes = values && values.length > 0 ? (magitConfirm("drop-stashes", undefined, "Drop %d stashes", values) as string[]) : [magitReadStash("Drop stash")];
+    for (const stash of [...stashes].reverse()) {
+      e8.message(`Deleted refs/${stash} (was ${gitString(["rev-parse", "--short", stash]) ?? ""})`);
+      gitOutput(["stash", "drop", stash]);
+    }
+    refreshAll();
   },
 });
 
@@ -755,32 +998,78 @@ function readCommit(prompt: string): string {
   return magitReadBranchOrCommit(prompt);
 }
 
-/** A commit fixing up or squashing into a commit read, then rebasing them together if INSTANT, as magit-commit-fixup and its kin. */
-function fixupCommand(name: string, doc: string, option: (rev: string) => string, edit: boolean, instant = false) {
+/**
+ * Makes a commit with OPTION, --fixup= or --squash= and the like, naming
+ * COMMIT, as magit-commit-squash-internal: COMMIT is used at once when
+ * CONFIRMED, or when it is not to be rebased, there is no prefix argument
+ * and magit-commit-squash-confirm is nil; otherwise a commit is selected
+ * in a log, the staged changes shown meanwhile as magit-commit-show-diff
+ * says.  NOPATCH commits whatever there is; EDIT edits the message; REBASE
+ * squashes the new commit into COMMIT at once.  Whether it made the commit.
+ */
+function magitCommitSquashInternal(option: string, commitIn: string | undefined, argsIn: string[], nopatch = false, edit = false, rebaseIn = false, confirmed = false): boolean {
+  let commit = commitIn;
+  let rebase = rebaseIn;
+  const asserted = magitCommitAssert(argsIn, nopatch, !edit);
+  if (!asserted) return false;
+  let args = asserted;
+  if (commit && rebase && !magitRevAncestorP(commit, "HEAD")) {
+    const choice = magitReadCharCase(`${commit} isn't an ancestor of HEAD.  `, false, [
+      ["c", "[c]reate without rebasing", "create"],
+      ["s", "[s]elect other", "select"],
+      ["a", "[a]bort", "abort"],
+    ]);
+    if (choice === "abort") e8.userError("Quit");
+    if (choice === "create") rebase = false;
+    else commit = undefined;
+  }
+  if (commit) commit = magitRebaseInteractiveAssert(commit, true);
+  if (commit && (confirmed || !(rebase || prefixArgP() || truthy(e8.variable("magit-commit-squash-confirm"))))) {
+    args = [edit ? "--edit" : "--no-edit", `${option}${commit}`, ...args];
+    if (rebase) runGit(["commit", "--no-gpg-sign", ...args.filter((a) => !a.startsWith("--gpg-sign="))]);
+    else e8.letBind({ "magit-commit-show-diff": false }, () => editCommit(args));
+    return true;
+  }
+  const winconf = truthy(e8.variable("magit-commit-show-diff")) ? e8.currentWindowConfiguration() : undefined;
+  magitLogSelect(
+    (picked) => {
+      if (magitCommitSquashInternal(option, picked, argsIn, nopatch, edit, rebase, true) && rebase) {
+        magitCommitAmendAssert(picked);
+        magitRebaseInteractive1(picked, ["--autosquash", "--autostash", "--keep-empty"], "", "true", false, true);
+      }
+      if (winconf) e8.setWindowConfiguration(winconf);
+    },
+    `Type . on a commit to ${option.slice(2)} into it, or C-c C-k to abort`,
+    undefined,
+    undefined,
+    undefined,
+    commit,
+  );
+  if (truthy(e8.variable("magit-commit-show-diff")) && !nopatch) e8.letBind({ "magit-display-buffer-noselect": true }, () => e8.call("magit-diff-staged" as e8.CommandName));
+  return false;
+}
+
+/** A command making a commit with OPTION into the commit at point or one selected, as magit-commit-fixup and its kin. */
+function fixupCommand(name: string, doc: string, option: string, nopatch: boolean, edit: boolean, rebase: boolean) {
   return e8.defineCommand({
     name,
     doc,
     run: () => {
-      const rev = readCommit(doc.replace(/\.$/, ""));
-      if (edit) {
-        editCommit([option(rev), ...commitArgs()]);
-        return;
-      }
-      if (!runGit(["commit", "--no-edit", option(rev), ...commitArgs()])) return;
-      // Onto the commit's parent, or from the root for the first commit, as magit-rebase-autosquash does.
-      const onto = gitOutput(["rev-parse", "--verify", "-q", `${rev}^`]).exit === 0 ? `${rev}^` : "--root";
-      if (instant) runGit(["-c", "sequence.editor=:", "rebase", "-i", "--autosquash", "--autostash", "--keep-empty", onto]);
+      setThisCommitCommand(name);
+      magitCommitSquashInternal(option, magitCommitAtPoint(), commitArgs(), nopatch, edit, rebase);
     },
   });
 }
 
-const commitFixup = fixupCommand("magit-commit-fixup", "Create a fixup commit.", (r) => `--fixup=${r}`, false);
-const commitSquash = fixupCommand("magit-commit-squash", "Create a squash commit.", (r) => `--squash=${r}`, false);
-const commitAlter = fixupCommand("magit-commit-alter", "Create a commit changing a commit and its message.", (r) => `--fixup=amend:${r}`, true);
-const commitAugment = fixupCommand("magit-commit-augment", "Create a squash commit, writing its message.", (r) => `--squash=${r}`, true);
-const commitRevise = fixupCommand("magit-commit-revise", "Create a commit rewording a commit.", (r) => `--fixup=reword:${r}`, true);
-const commitInstantFixup = fixupCommand("magit-commit-instant-fixup", "Create a fixup commit and rebase it into place at once.", (r) => `--fixup=${r}`, false, true);
-const commitInstantSquash = fixupCommand("magit-commit-instant-squash", "Create a squash commit and rebase it into place at once.", (r) => `--squash=${r}`, false, true);
+const squashDoc = (what: string, more = ""): string =>
+  `${what}\n\nIf there is a reachable commit at point, target that.  Otherwise prompt for a commit.  If magit-commit-squash-confirm is non-nil, always make the user explicitly select a commit, in a buffer dedicated to that task.${more}`;
+const commitFixup = fixupCommand("magit-commit-fixup", squashDoc("Create a fixup commit, leaving the original commit message untouched."), "--fixup=", false, false, false);
+const commitSquash = fixupCommand("magit-commit-squash", squashDoc("Create a squash commit, without the user authoring a commit message.", "\n\nDuring a later rebase, when this commit gets squashed into its targeted commit, the original message of the targeted commit is used as the initial message of the squashed commit, and the user is given a chance to edit it."), "--squash=", false, false, false);
+const commitAlter = fixupCommand("magit-commit-alter", squashDoc("Create a squash commit, authoring the final message now."), "--fixup=amend:", false, true, false);
+const commitAugment = fixupCommand("magit-commit-augment", squashDoc("Create a squash commit, authoring a new temporary message."), "--squash=", false, true, false);
+const commitRevise = fixupCommand("magit-commit-revise", squashDoc("Reword the message of an existing commit, without editing its tree."), "--fixup=reword:", true, true, false);
+const commitInstantFixup = fixupCommand("magit-commit-instant-fixup", squashDoc("Create a fixup commit, and immediately combine it with its target.", "\n\nLike magit-commit-fixup but also run a --autofixup rebase."), "--fixup=", false, false, true);
+const commitInstantSquash = fixupCommand("magit-commit-instant-squash", squashDoc("Create a squash commit, and immediately combine it with its target.", "\n\nLike magit-commit-squash but also run a --autofixup rebase."), "--squash=", false, false, true);
 
 const commitMenu = transientDefinePrefix("magit-commit", {
   doc: "Create a new commit or replace an existing commit.",
@@ -897,10 +1186,23 @@ const pushTags = e8.defineCommand({
   },
 });
 
+/** The branch the configure menu sets variables of, as magit-branch-configure's transient scope. */
+let branchConfigureScope: string | undefined;
+const branchScope = (): string => branchConfigureScope ?? branchOrHead();
+
 const setVariables = e8.defineCommand({
   name: "magit-branch-configure",
-  doc: "Configure the current branch's upstream, push remote and rebasing.",
-  run: () => e8.call(branchMenu),
+  doc: "Configure a branch.\nWith a prefix argument, or when called from magit-branch with magit-branch-direct-configure, read the branch; else the current branch.",
+  run: () => {
+    const fromBranch = truthy(e8.variable("magit-branch-direct-configure")) && e8.variable("transient-current-command") === "magit-branch";
+    const current = !prefixArgP() && !fromBranch ? currentBranch() : undefined;
+    branchConfigureScope = current ?? readBranch("Configure branch", localBranches(), magitLocalBranchAtPoint() ?? currentBranch());
+    try {
+      e8.call(branchConfigureMenu);
+    } finally {
+      branchConfigureScope = undefined;
+    }
+  },
 });
 
 /** Pushes the notes REF to REMOTE, as magit-push-notes-ref. */
@@ -998,10 +1300,12 @@ function configVariable(key: string, variable: () => string, choices: () => stri
   return [key, describe, command];
 }
 
+e8.defineVariable({ name: "magit-pull-or-fetch", doc: "Whether magit-pull also offers some fetch suffixes.", value: false });
+
 const pullMenu = transientDefinePrefix("magit-pull", {
   doc: "Pull from another repository.",
   groups: [
-    { description: "Arguments", items: [["-f", "Fast-forward only", "--ff-only"], ["-r", "Rebase local commits", "--rebase"], ["-F", "Force", "--force"]] },
+    { description: () => (truthy(e8.variable("magit-pull-or-fetch")) ? "Pull arguments" : "Arguments"), items: [["-f", "Fast-forward only", "--ff-only"], ["-r", "Rebase local commits", "--rebase"], ["-F", "Force", "--force"]] },
     {
       description: () => `Pull into ${branchOrHead()} from`,
       items: [
@@ -1010,6 +1314,9 @@ const pullMenu = transientDefinePrefix("magit-pull", {
         ["e", "elsewhere", pullElsewhere],
       ],
     },
+    // With magit-pull-or-fetch, some of magit-fetch's suffixes too.
+    { description: "Fetch from", if: () => truthy(e8.variable("magit-pull-or-fetch")), items: [["f", "remotes", "magit-fetch-all-no-prune"], ["F", "remotes and prune", "magit-fetch-all-prune"]] },
+    { description: "Fetch", if: () => truthy(e8.variable("magit-pull-or-fetch")), items: [["o", "another branch", "magit-fetch-branch"], ["s", "explicit refspec", "magit-fetch-refspec"], ["m", "submodules", "magit-fetch-modules"]] },
     {
       description: "Configure",
       items: [configVariable("r", () => `branch.${branchOrHead()}.rebase`, () => ["true", "false"], "false"), ["C", "variables...", setVariables]],
@@ -1094,8 +1401,36 @@ function branchVariable(key: string, name: () => string, read: () => string | un
 
 const branchLocal = e8.defineCommand({
   name: "magit-branch-checkout",
-  doc: "Check out a local branch, or create one from a remote branch.",
-  run: () => runGit(["checkout", readBranch("Checkout branch", localBranches().filter((b) => b !== currentBranch()))]) as unknown as void,
+  doc: "Checkout an existing or new local branch.\n\nRead a branch name from the user offering all local branches and a subset of remote branches as candidates.  Omit remote branches for which a local branch by the same name exists from the list of candidates.  The user can also enter a completely new branch name.\n\n- If the user selects an existing local branch, then check that out.\n\n- If the user selects a remote branch, then create and checkout a new local branch with the same name.  Configure the selected remote branch as push target.\n\n- If the user enters a new branch name, then create and check that out, after also reading the starting-point from the user.\n\nIn the latter two cases the upstream is also set.  Whether it is set to the chosen START-POINT or something else depends on the value of magit-branch-adjust-remote-upstream-alist, just like when using magit-branch-and-checkout.",
+  run: () => {
+    const current = currentBranch();
+    const local = localBranches();
+    const remote = remoteBranches().filter((b) => {
+      const m = /^[^/]+\//.exec(b);
+      return m !== null && ![...local, "HEAD"].includes(b.slice(m[0].length));
+    });
+    const choices = [...local.filter((b) => b !== current), ...remote];
+    const atpoint = magitBranchAtPoint();
+    const stripped = atpoint && /^[^/]+\//.test(atpoint) ? atpoint.replace(/^[^/]+\//, "") : undefined;
+    const def = atpoint && choices.includes(atpoint) ? atpoint : stripped && choices.includes(stripped) ? stripped : undefined;
+    const choice = magitCompletingRead("Checkout branch", choices, { history: "magit-revision-history", def }) ?? e8.userError("Nothing selected");
+    let branch = choice;
+    let start: string | undefined;
+    if (remote.includes(choice)) [branch, start] = [choice.replace(/^[^/]+\//, ""), choice];
+    else if (!local.includes(choice)) start = magitReadStartingPoint("Create", choice);
+    if (!start) {
+      runGit(["checkout", ...branchArgs(), branch.replace(/^heads\//, "")]);
+      return;
+    }
+    if (magitAnythingModifiedP()) e8.userError("Cannot checkout when there are uncommitted changes");
+    gitOutput(["checkout", ...branchArgs(), "-b", branch, start]);
+    magitBranchMaybeAdjustUpstream(branch, start);
+    if (magitRemoteBranchP(start)) {
+      const [r, remoteBranch] = magitSplitBranchName(start);
+      if (branch === remoteBranch && r !== magitGet("remote.pushDefault")) magitSet(r, "branch", branch, "pushRemote");
+    }
+    refreshAll();
+  },
 });
 
 const branchSpinoff = e8.defineCommand({
@@ -1140,28 +1475,46 @@ const updateDefaultBranch = gitCommand("magit-update-default-branch", "Update th
   return remote ? ["remote", "set-head", remote, "--auto"] : undefined;
 });
 
-const branchMenu = transientDefinePrefix("magit-branch", {
-  doc: "Add, configure or remove a branch.",
-  groups: [
+/** The groups of the branch configure menu, for the branch SCOPE names, as magit-branch-configure's and magit-branch's. */
+function branchConfigureGroups(scope: () => string, direct = false) {
+  const scoped = () => !direct || (truthy(e8.variable("magit-branch-direct-configure")) && currentBranch() !== undefined);
+  return [
     {
-      description: () => `Configure ${branchOrHead()}`,
+      description: () => e8.concat(face("Configure ", "transient-heading"), face(scope(), "magit-branch-local")),
+      if: scoped,
       items: [
-        branchVariable("d", () => `branch.${branchOrHead()}.description`, () => e8.readString("Description: ")),
-        branchVariable("u", () => `branch.${branchOrHead()}.merge`, () => {
+        branchVariable("d", () => `branch.${scope()}.description`, () => e8.readString("Description: ")),
+        branchVariable("u", () => `branch.${scope()}.merge`, () => {
           const up = readBranch("Upstream", remoteBranches());
           const [remote, ...rest] = up.split("/");
-          gitOutput(["config", `branch.${branchOrHead()}.remote`, remote]);
+          gitOutput(["config", `branch.${scope()}.remote`, remote]);
           return `refs/heads/${rest.join("/")}`;
         }),
-        [" ", { info: () => e8.concat(face(`branch.${branchOrHead()}.remote`, "transient-argument"), " ", ((r) => (r === undefined ? face("unset", "transient-inactive-value") : face(r, "transient-value")))(gitString(["config", `branch.${branchOrHead()}.remote`]))) }],
-        configVariable("r", () => `branch.${branchOrHead()}.rebase`, () => ["true", "false"], "false"),
-        configVariable("p", () => `branch.${branchOrHead()}.pushRemote`, () => remotes()),
+        [" ", { info: () => e8.concat(face(`branch.${scope()}.remote`, "transient-argument"), " ", ((r) => (r === undefined ? face("unset", "transient-inactive-value") : face(r, "transient-value")))(gitString(["config", `branch.${scope()}.remote`]))) }],
+        configVariable("r", () => `branch.${scope()}.rebase`, () => ["true", "false"], "false"),
+        configVariable("p", () => `branch.${scope()}.pushRemote`, () => remotes()),
       ],
     },
     {
       description: "Configure repository defaults",
+      if: () => !direct || truthy(e8.variable("magit-branch-direct-configure")),
       items: [configVariable("R", () => "pull.rebase", () => ["true", "false"], "false"), configVariable("P", () => "remote.pushDefault", () => remotes()), ["B", "Update default branch", updateDefaultBranch]],
     },
+  ] as Group[];
+}
+
+const branchConfigureMenu = transientDefinePrefix("magit:branch-configure", {
+  doc: "Configure a branch.",
+  groups: [
+    ...branchConfigureGroups(branchScope),
+    { description: "Configure branch creation", items: [configVariable("a m", () => "branch.autoSetupMerge", () => ["always", "true", "false"], "true"), configVariable("a r", () => "branch.autoSetupRebase", () => ["always", "local", "remote", "never"], "never")] },
+  ],
+});
+
+const branchMenu = transientDefinePrefix("magit-branch", {
+  doc: "Add, configure or remove a branch.",
+  groups: [
+    ...branchConfigureGroups(branchOrHead, true),
     { description: "Arguments", items: [] },
     {
       items: [
@@ -1202,7 +1555,7 @@ const logArgs = (): string[] => transientArgs("magit-log").filter((a) => !["--gr
 
 const logMenu = transientDefinePrefix("magit-log", {
   doc: "Show a commit or reference log.",
-  value: ["-n256", "--graph", "--decorate"],
+  value: magitLogPrefixValue,
   groups: [
     {
       description: "Commit limiting",
@@ -1431,6 +1784,9 @@ const diffInfixArguments: Group[] = [
     },
 ];
 
+// The menu does not start with magitDiffPrefixValue, as magit-diff's transient-init-value would have
+// it: E8's transient takes any argument starting with -- as the value of the -- infix, so --stat
+// would show as the files the diff is limited to.
 const diffMenu = transientDefinePrefix("magit-diff", {
   doc: "Show changes between different versions.",
   groups: [
@@ -1514,8 +1870,8 @@ const stashBranch = e8.defineCommand({
   name: "magit-stash-branch",
   doc: "Create a branch from a stash's commit, apply the stash to it and drop the stash.",
   run: () => {
-    const s = stashAt("Branch from stash");
-    const name = e8.readString("Branch name: ");
+    const s = magitReadStash("Branch stash");
+    const name = magitReadStringNs("Branch name");
     runGit(["stash", "branch", name, s]);
   },
 });
@@ -1523,8 +1879,8 @@ const stashBranchHere = e8.defineCommand({
   name: "magit-stash-branch-here",
   doc: "Create a branch at HEAD, check it out, apply a stash to it and drop the stash.",
   run: () => {
-    const s = stashAt("Branch from stash");
-    const name = e8.readString("Branch name: ");
+    const s = magitReadStash("Branch stash");
+    const name = magitReadStringNs("Branch name");
     if (runGit(["checkout", "-b", name]) && runGit(["stash", "apply", s])) runGit(["stash", "drop", s]);
   },
 });
@@ -1532,7 +1888,7 @@ const stashFormatPatch = e8.defineCommand({
   name: "magit-stash-format-patch",
   doc: "Write a stash as a patch file.",
   run: () => {
-    const s = stashAt("Format patch from stash");
+    const s = magitReadStash("Create patch from stash");
     const out = gitOutput(["stash", "show", "-p", s]).output;
     const file = e8.expandFileName(`${s.replace(/[@{}]/g, "")}.patch`, repo());
     e8.writeTextFile(file, out);
@@ -1910,7 +2266,32 @@ for (const [key, command] of bindings) e8.defineKey("magit-mode-map", key, comma
 
 // M-x magit is magit-status, as Magit's defalias makes it.
 e8.defalias("magit", "magit-status");
-e8.bindKey("C-x g", magitStatus);
-e8.bindKey("C-x M-g", dispatch);
+
+e8.defineVariable({
+  name: "magit-define-global-key-bindings",
+  doc: "Which set of key bindings to add to the global keymap, if any.\n\nThis option controls which set of Magit key bindings, if any, may be added to the global keymap, even before Magit is first used in the current Emacs session.\n\nIf the value is nil, no bindings are added.\n\nIf default, maybe add:\n\n    C-x g     magit-status\n    C-x M-g   magit-dispatch\n    C-c M-g   magit-file-dispatch\n\nIf recommended, maybe add:\n\n    C-x g     magit-status\n    C-c g     magit-dispatch\n    C-c f     magit-file-dispatch\n\n    These bindings are strongly recommended, but we cannot use them by default, because the C-c <LETTER> namespace is strictly reserved for bindings added by the user.\n\nThe bindings in the chosen set may be added when after-init-hook is run.  Each binding is added if, and only if, at that time no other key is bound to the same command, and no other command is bound to the same key.  In other words we try to avoid adding bindings that are unnecessary, as well as bindings that conflict with other bindings.\n\nAs E8 cannot tell whether after-init-hook has run, they are also added when Magit is loaded, so the variable must be set before then to have an effect then.",
+  value: "default",
+});
+
+/**
+ * Adds the global key bindings magit-define-global-key-bindings names,
+ * each only if its key and command are unbound, or with FORCE, as
+ * magit-maybe-define-global-key-bindings.
+ */
+export function magitMaybeDefineGlobalKeyBindings(force = false): void {
+  const set = e8.variable("magit-define-global-key-bindings");
+  if (!truthy(set)) return;
+  const bindings: [string, string][] =
+    set === "recommended"
+      ? [["C-x g", "magit-status"], ["C-c g", "magit-dispatch"], ["C-c f", "magit-file-dispatch"]]
+      : [["C-x g", "magit-status"], ["C-x M-g", "magit-dispatch"], ["C-c M-g", "magit-file-dispatch"]];
+  for (const [key, command] of bindings) {
+    const bound = e8.lookupKey("global-map", key);
+    if (force || ((bound === undefined || bound === null) && !e8.whereIsInternal(command).some((k) => e8.lookupKey("global-map", k) === command))) e8.bindKey(key, command as e8.CommandName);
+  }
+}
+e8.defun("magit-maybe-define-global-key-bindings", (force?: e8.Value) => magitMaybeDefineGlobalKeyBindings(truthy(force ?? null)));
+magitMaybeDefineGlobalKeyBindings();
+e8.addHook("after-init-hook", () => magitMaybeDefineGlobalKeyBindings());
 
 void sectionAt;

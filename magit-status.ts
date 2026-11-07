@@ -59,7 +59,7 @@ import {
 } from "magit-git";
 import { magitCallGit } from "magit-process";
 import { magitBufferName, magitGetModeBuffer, magitDisplayBuffer, magitSetupBuffer, magitStatusMode } from "magit-mode";
-import { inserters, magitDiffArguments, magitInsertStagedChanges, magitInsertUnstagedChanges, runSectionHook, type FileValue } from "magit-diff";
+import { inserters, magitDiffArguments, magitFormatFile, magitInsertStagedChanges, magitInsertUnstagedChanges, runSectionHook, type FileValue } from "magit-diff";
 import {
   magitInsertRecentCommits,
   magitInsertUnpulledFromPushremote,
@@ -302,7 +302,7 @@ function insertFiles(type: string, list: (files: string[]) => string[]): void {
         limit--;
         const file = rest.shift()!;
         insertSection("file", file, false, () => {
-          e8.insert(fl(file, "magit-filename"));
+          e8.insert(magitFormatFile("list", file, "magit-filename"));
           e8.insert("\n");
         });
       }

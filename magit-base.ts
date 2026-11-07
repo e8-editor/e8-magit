@@ -29,6 +29,88 @@ e8.defineVariable({
   value: true,
 });
 
+e8.defineVariable({
+  name: "magit-completing-read-function",
+  doc: "Function to be called when requesting input from the user.\n\nThe default, magit-builtin-completing-read, support third-party completion frameworks, including vertico-mode, ivy-mode and helm-mode.\n\nHowever, if you would like to use Ivy or Helm completion with Magit but not enable the respective modes globally, then customize this option to use ivy-completing-read or helm--completing-read-default.\n\nIf you still use ido-mode, you'll likely need the magit-ido package.",
+  value: "magit-builtin-completing-read",
+});
+e8.defineVariable({
+  name: "magit-dwim-selection",
+  doc: "When not to offer alternatives and ask for confirmation.\n\nMany commands by default ask the user to select from a list of possible candidates.  They do so even when there is a thing at point that they can act on, which is then offered as the default.\n\nThis option can be used to tell certain commands to use the thing at point instead of asking the user to select a candidate to act on, with or without confirmation.\n\nThe value has the form ((COMMAND nil|PROMPT DEFAULT)...).\n\n- COMMAND is the command that should not prompt for a choice.  To have an effect, the command has to use the function magit-completing-read or a utility function which in turn uses that function.\n\n- If the command uses magit-completing-read multiple times, then PROMPT can be used to only affect one of these uses.  PROMPT, if non-nil, is a regular expression that is used to match against the PROMPT argument passed to magit-completing-read.\n\n- DEFAULT specifies how to use the default.  If it is t, then the DEFAULT argument passed to magit-completing-read is used without confirmation.  If it is ask, then the user is given a chance to abort.  DEFAULT can also be nil, in which case the entry has no effect.",
+  value: [
+    ["magit-stash-apply", null, true],
+    ["magit-ediff-resolve-all", null, true],
+    ["magit-ediff-resolve-rest", null, true],
+    ["magit-stash-branch", null, true],
+    ["magit-stash-branch-here", null, true],
+    ["magit-stash-format-patch", null, true],
+    ["magit-stash-drop", null, "ask"],
+    ["magit-stash-pop", null, "ask"],
+  ],
+});
+e8.defineVariable({
+  name: "magit-slow-confirm",
+  doc: "Whether to ask user \"y or n\" or \"yes or no\" questions.\n\nWhen this is nil, then y-or-n-p is used when the user has to confirm a potentially destructive action.  When this is t, then yes-or-no-p is used instead.  If this is a list of symbols identifying actions, then yes-or-no-p is used for those, y-or-no-p for all others.  The list of actions is the same as for magit-no-confirm (which see).",
+  value: ["drop-stashes"],
+});
+e8.defineVariable({
+  name: "magit-no-message",
+  doc: "A list of messages Magit should not display.\n\nMagit displays most echo area messages using message, but a few are displayed using magit-message instead, which takes the same arguments as the former, FORMAT-STRING and ARGS.  magit-message forgoes printing a message if any member of this list is a prefix of the respective FORMAT-STRING.\n\nIf Magit prints a message which causes you grief, then please first investigate whether there is another option which can be used to suppress it.  If that is not the case, then ask the Magit maintainers to start using magit-message instead of message in that case.  We are not proactively replacing all uses of message with magit-message, just in case someone *might* find some of these messages useless.\n\nMessages which can currently be suppressed using this option are:\n* \"Turning on magit-auto-revert-mode...\"",
+  value: [],
+});
+e8.defineVariable({
+  name: "magit-ellipsis",
+  doc: "Characters or strings used to abbreviate text in some buffers.\n\nEach element has the form (WHERE (FANCY . UNIVERSAL)).\n\nFANCY is a single character or nil whereas UNIVERSAL is a string of any length.  The ellipsis produced by magit--ellipsis will be FANCY if it's a non-nil character that can be displayed with the available fonts, otherwise UNIVERSAL will be used.  FANCY is meant to be a rich character like a horizontal ellipsis symbol or an emoji whereas UNIVERSAL something simpler available in a less rich environment like the CLI.  WHERE determines the use-case for the ellipsis definition.  Currently the only acceptable values for WHERE are margin or t (representing the default).\n\nWhether collapsed sections are indicated using ellipsis is controlled by magit-section-visibility-indicator.\n\nAs E8 cannot yet tell whether a character can be displayed, FANCY is always used when it is given.",
+  value: [
+    ["margin", ["…", ">"]],
+    [true, ["…", "..."]],
+  ],
+});
+
+/**
+ * An ellipsis, as a string, for WHERE (margin, or the default), as
+ * magit--ellipsis: from magit-ellipsis, a string or entries
+ * (WHERE (FANCY . UNIVERSAL)), FANCY if it is given, else UNIVERSAL.
+ */
+export function magitEllipsis(where?: string): string {
+  const v = e8.variable("magit-ellipsis");
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) {
+    const entry = (key: unknown) => (v as unknown[]).find((e) => Array.isArray(e) && e[0] === key) as unknown[] | undefined;
+    const found = entry(where ?? true) ?? entry(true);
+    // (WHERE (FANCY . UNIVERSAL)) is [WHERE, [FANCY, UNIVERSAL]], and as a dotted pair [WHERE, FANCY, UNIVERSAL].
+    const pair = found && (Array.isArray(found[1]) ? (found[1] as unknown[]) : found.slice(1));
+    if (pair) {
+      const [fancy, universal] = pair;
+      const e = truthy(fancy as e8.Value) ? fancy : universal;
+      if (typeof e === "string") return e;
+      if (typeof e === "number") return String.fromCodePoint(e);
+    }
+  }
+  return e8.userError("Variable magit-ellipsis is invalid");
+}
+
+/**
+ * Shows a message, as message, unless a member of magit-no-message is a
+ * prefix of FORMAT, as magit-message: FORMAT's %s and %d take ARGS.
+ */
+export function magitMessage(format: string, ...args: unknown[]): void {
+  const no = e8.variable("magit-no-message");
+  if (Array.isArray(no) && no.some((p) => typeof p === "string" && format.startsWith(p))) return;
+  let i = 0;
+  e8.message(format.replace(/%[sdS%]/g, (m) => (m === "%%" ? "%" : String(args[i++]))));
+}
+
+/**
+ * Asks PROMPT as y-or-n-p, or as yes-or-no-p when magit-slow-confirm is t
+ * or names ACTION, as magit-y-or-n-p.
+ */
+export function magitYOrNP(prompt: string, action?: string): boolean {
+  const slow = e8.variable("magit-slow-confirm");
+  if (slow === true || (action !== undefined && Array.isArray(slow) && slow.some((a) => String(a) === action))) return e8.yesOrNoP(prompt);
+  return e8.yOrNP(prompt);
+}
+
 /**
  * The prompt Magit shows: PROMPT, the default in parentheses, and ": ",
  * as magit-builtin-completing-read formats it.
@@ -37,6 +119,47 @@ export function magitFormatPrompt(prompt: string, def?: string): string {
   const base = prompt.replace(/: ?$/, "");
   return def !== undefined && def !== "" ? `${base} (default ${def}): ` : `${base}: `;
 }
+
+/** Whether magit-completing-read-function is Magit's own, as magit-completing-read-default-prompt-predicate asks. */
+const builtinCompletingRead = (): boolean => {
+  const fn = e8.variable("magit-completing-read-function");
+  return fn === null || fn === "magit-builtin-completing-read";
+};
+
+/** Reads one of CHOICES with completion, keeping their order, as magit-builtin-completing-read. */
+export function magitBuiltinCompletingRead(prompt: string, choices: string[], requireMatch?: e8.Value, initialInput?: string, hist?: string, def?: string, category?: string): string {
+  return e8.completingRead(prompt, choices, {
+    requireMatch: truthy(requireMatch ?? null),
+    initial: initialInput,
+    history: hist,
+    default: def,
+    category,
+  });
+}
+e8.defun("magit-builtin-completing-read", (prompt: string, choices: string[], _predicate?: e8.Value, requireMatch?: e8.Value, initialInput?: string | null, hist?: string | null, def?: string | null) =>
+  magitBuiltinCompletingRead(prompt, choices, requireMatch, initialInput ?? undefined, hist ?? undefined, def ?? undefined),
+);
+
+/**
+ * How magit-dwim-selection says to use DEF for PROMPT in the command
+ * running: t to use it, ask to ask first, or undefined to read a choice.
+ */
+function dwimSelection(prompt: string): true | "ask" | undefined {
+  const command = e8.thisCommand();
+  const entries = e8.variable("magit-dwim-selection");
+  if (!command || !Array.isArray(entries)) return undefined;
+  for (const entry of entries) {
+    if (!Array.isArray(entry) || String(entry[0]) !== command) continue;
+    const [, re, dwim] = entry;
+    if (typeof re === "string" && e8.stringMatch(re, prompt) === undefined) continue;
+    if (dwim === "ask") return "ask";
+    if (truthy(dwim as e8.Value)) return true;
+  }
+  return undefined;
+}
+
+/** Whether the last magitCompletingRead used the default without asking, as magit-completing-read--silent-default. */
+export let magitCompletingReadSilentDefault = false;
 
 export interface MagitCompletingReadOptions {
   requireMatch?: boolean | "any";
@@ -54,17 +177,28 @@ export interface MagitCompletingReadOptions {
  * undefined for empty input otherwise.
  */
 export function magitCompletingRead(prompt: string, collection: Iterable<string>, options: MagitCompletingReadOptions = {}): string | undefined {
+  magitCompletingReadSilentDefault = false;
+  if (options.def !== undefined) {
+    const dwim = dwimSelection(prompt);
+    if (dwim === "ask") {
+      if (e8.yOrNP(`${prompt} ${options.def}? `)) return options.def;
+      return e8.userError("Abort");
+    }
+    if (dwim === true) {
+      magitCompletingReadSilentDefault = true;
+      return options.def;
+    }
+  }
   const def = options.def ?? options.fallback;
   let choices = Array.from(collection);
   if (def !== undefined && !choices.includes(def)) choices = [def, ...choices];
-  const reply = e8.completingRead(magitFormatPrompt(prompt, def), choices, {
-    requireMatch: options.requireMatch === true,
-    initial: options.initialInput,
-    history: options.history,
-    default: def,
-    category: options.category,
-  });
-  if (reply === "" || reply === undefined) {
+  const builtin = builtinCompletingRead();
+  const formatted = magitFormatPrompt(prompt, builtin ? def : undefined);
+  const requireMatch = options.requireMatch === true;
+  const reply: string | undefined | null = builtin
+    ? magitBuiltinCompletingRead(formatted, choices, requireMatch, options.initialInput, options.history, def, options.category)
+    : e8.funcall(e8.variable("magit-completing-read-function") as string, formatted, choices, null, requireMatch, options.initialInput ?? null, options.history ?? null, def ?? null);
+  if (reply === "" || reply === undefined || reply === null) {
     if (options.requireMatch && !(def === "")) e8.userError("Nothing selected");
     return undefined;
   }
@@ -123,7 +257,7 @@ function noConfirm(action: string | true): boolean {
  */
 export function magitConfirm(action: string | true, prompt?: string, promptN?: string, items?: string[], useYesOrNo = false): string[] | true {
   if (action !== true && noConfirm(action)) return items ?? true;
-  const ask = (q: string) => (useYesOrNo ? e8.yesOrNoP(q) : e8.yOrNP(q));
+  const ask = (q: string) => (useYesOrNo ? e8.yesOrNoP(q) : magitYOrNP(q, action === true ? undefined : action));
   let question: string;
   if (items && items.length > 1) question = (promptN ?? `${prompt ?? `${action}`} %d items`).replace("%d", String(items.length));
   else if (items && items.length === 1) question = (prompt ?? `${action} %s`).replace("%s", items[0]);

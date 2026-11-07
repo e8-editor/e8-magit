@@ -45,7 +45,32 @@ e8.defineVariable({
 });
 e8.defineVariable({ name: "magit-inhibit-save-previous-winconf", doc: "Whether magit-save-window-configuration leaves the window configuration unsaved; unset forgets the one saved.", value: false });
 e8.defineVariable({ name: "magit-inhibit-refresh", doc: "Whether to not refresh Magit buffers after git runs.", value: false });
-e8.defineVariable({ name: "magit-buffer-name-format", doc: "The format of Magit buffers' names: %M the mode's name without -mode, %m with it, %t the repository's directory name.", value: "%M%v: %t" });
+e8.defineVariable({
+  name: "magit-buffer-name-format",
+  doc: "The format string used to name Magit buffers.\n\nThe following %-sequences are supported:\n\n%m The name of the major-mode, but with the -mode suffix removed.\n\n%M Like \"%m\" but abbreviate magit-status-mode as magit.\n\n%v The value the buffer is locked to, in parentheses, or an empty string if the buffer is not locked to a value.\n\n%V Like \"%v\", but the string is prefixed with a space, unless it is an empty string.\n\n%t The top-level directory of the working tree of the repository, or if magit-uniquify-buffer-names is non-nil an abbreviation of that.\n\n%x If magit-uniquify-buffer-names is nil \"*\", otherwise the empty string.  Due to limitations of the uniquify package, buffer names must end with the path.\n\nThe value should always contain \"%m\" or \"%M\", \"%v\" or \"%V\", and \"%t\".  If magit-uniquify-buffer-names is non-nil, then the value must end with \"%t\" or \"%t%x\".  See issue #2841.\n\nThis is used by magit-generate-buffer-name-default-function.  If another magit-generate-buffer-name-function is used, then it may not respect this option, or on the contrary it may support additional %-sequences.",
+  value: "%x%M%v: %t%x",
+});
+e8.defineVariable({
+  name: "magit-generate-buffer-name-function",
+  doc: "The function used to generate the name for a Magit buffer.\n\nIt is called with the major mode and the value the buffer is locked to, if any, in the repository's top directory, and gives the name.",
+  value: "magit-generate-buffer-name-default-function",
+});
+e8.defineVariable({ name: "magit-uniquify-buffer-names", doc: "Whether to uniquify the names of Magit buffers.", value: true });
+e8.defineVariable({
+  name: "magit-section-disable-line-numbers",
+  doc: "In Magit buffers, whether to disable modes that display line numbers.\n\nSome users who turn on global-display-line-numbers-mode (or global-nlinum-mode or global-linum-mode) expect line numbers to be displayed everywhere except in Magit buffers.  Other users do not expect Magit buffers to be treated differently.  At least in theory users in the first group should not use the global mode, but that ship has sailed, thus this option.",
+  value: true,
+});
+e8.defineVariable({
+  name: "magit-direct-use-buffer-arguments",
+  doc: "Whether certain commands reuse arguments active in relevant buffer.\n\nThis affects certain commands such as magit-show-commit that are suffixes of the diff or log transient prefix commands, but only if they are invoked directly, i.e., *not* as a suffix.\n\nValid values are:\n\nalways: Always use the set of arguments that is currently active in the respective buffer, provided that buffer exists of course.\nselected: Use the set of arguments from the respective buffer, but only if it is displayed in a window of the current frame.  This is the default.\ncurrent: Use the set of arguments from the respective buffer, but only if it is the current buffer.\nnever: Never use the set of arguments from the respective buffer.\n\nFor more information see info node (magit)Transient Arguments and Buffer Variables.",
+  value: "selected",
+});
+e8.defineVariable({
+  name: "magit-prefix-use-buffer-arguments",
+  doc: "Whether certain prefix commands reuse arguments active in relevant buffer.\n\nThis affects the transient prefix commands magit-diff, magit-log and magit-show-refs.\n\nValid values are:\n\nalways: Always use the set of arguments that is currently active in the respective buffer, provided that buffer exists of course.\nselected: Use the set of arguments from the respective buffer, but only if it is displayed in a window of the current frame.  This is the default.\ncurrent: Use the set of arguments from the respective buffer, but only if it is the current buffer.\nnever: Never use the set of arguments from the respective buffer.\n\nFor more information see info node (magit)Transient Arguments and Buffer Variables.",
+  value: "selected",
+});
 for (const [name, doc] of [
   ["magit-buffer-range", "The range a diff or log buffer shows."],
   ["magit-buffer-range-hashed", "The range a diff buffer shows, with hashes for its ends."],
@@ -69,7 +94,46 @@ e8.defineHook("magit-pre-display-buffer-hook", "Hook run by magit-display-buffer
 e8.defineHook("magit-post-display-buffer-hook", "Hook run by magit-display-buffer after displaying the buffer.");
 e8.defineHook("magit-refresh-buffer-hook", "Normal hook for magit-refresh-buffer to run after refreshing.");
 e8.defineHook("magit-mode-setup-hook", "Hook run by magit-setup-buffer after the buffer is set up.");
-e8.defineHook("magit-create-buffer-hook", "Normal hook run while creating a new magit-mode buffer.");
+e8.defineHook("magit-create-buffer-hook", "Normal hook run while creating a new magit-mode buffer.\nRuns before the buffer is populated with sections.  Also see magit-post-create-buffer-hook.");
+e8.defineVariable({
+  name: "magit-post-create-buffer-hook",
+  doc: "Normal hook run after creating a new magit-mode buffer.\nRuns after the buffer is populated with sections for the first time.  Also see magit-create-buffer-hook (which runs earlier) and magit-refresh-buffer-hook (which runs on every refresh).",
+  value: [],
+});
+e8.defineVariable({
+  name: "magit-setup-buffer-hook",
+  doc: "Hook run by magit-setup-buffer.\n\nThis is run right after displaying the buffer and right before generating or updating its content.  magit-mode-hook and other, more specific, magit-mode-*-hooks on the other hand are run right before displaying the buffer.  Usually one of these hooks should be used instead of this one.",
+  value: ["magit-maybe-save-repository-buffers", "magit-set-buffer-margins"],
+});
+
+/**
+ * Turns off the line numbers a global mode turned on in a Magit buffer,
+ * as magit-section-mode does when magit-section-disable-line-numbers:
+ * after the major mode's hooks, as E8's global modes turn on then.
+ */
+function magitSectionMaybeDisableLineNumbers(): void {
+  if (!truthy(e8.variable("magit-section-disable-line-numbers"))) return;
+  if (truthy(e8.variable("global-display-line-numbers-mode")) && truthy(e8.variable("display-line-numbers-mode"))) e8.callWithPrefix(-1, "display-line-numbers-mode");
+}
+
+// After the global mode's turn-on function, which after-change-major-mode-hook runs too.
+e8.addHook("after-change-major-mode-hook", () => {
+  if (e8.derivedModeP("magit-section-mode")) magitSectionMaybeDisableLineNumbers();
+}, { append: true });
+
+/**
+ * Runs HOOK, a variable listing functions by name or as functions, and
+ * those added with e8.addHook, as run-hooks does with a hook whose default
+ * names functions.
+ */
+export function magitRunHooks(hook: string, ...args: e8.Value[]): void {
+  const v = e8.variable(hook);
+  for (const fn of Array.isArray(v) ? v : v !== null && v !== undefined && v !== false ? [v] : []) {
+    if (typeof fn === "function") (fn as (...a: e8.Value[]) => void)(...args);
+    else if (typeof fn === "string" && e8.fboundp(fn)) e8.funcall(fn, ...args);
+  }
+  e8.runHooks(hook, ...args);
+}
 
 /** The parent of every Magit buffer's mode, as magit-mode. */
 export const magitMode = e8.defineMajorMode({
@@ -100,21 +164,76 @@ const buffers = new PerBuffer<MagitBuffer>();
 export const magitRepoName = (dir: string): string => e8.fileNameNondirectory(dir.replace(/\/$/, ""));
 
 /**
- * The name of a Magit buffer of MODE for the repository in DIR, as
- * magit-generate-buffer-name-default-function: VALUE, the value a locked
- * buffer is locked to, is in it as Lisp prints a list.
+ * The name for a Magit buffer of MODE in the repository default-directory
+ * is in, as magit-generate-buffer-name-default-function: from
+ * magit-buffer-name-format, with the repository's directory name, or its
+ * whole directory unless magit-uniquify-buffer-names, and VALUE, the
+ * value the buffer is locked to, if any.
+ */
+export function magitGenerateBufferNameDefaultFunction(mode: string, value?: e8.Value): string {
+  const m = mode.replace(/-mode$/, "");
+  const v = value !== undefined && value !== null ? `(${(Array.isArray(value) ? value : [value]).map(String).join(" ")})` : undefined;
+  const uniquify = truthy(e8.variable("magit-uniquify-buffer-names"));
+  const dir = String(e8.variable("default-directory"));
+  const n = uniquify ? magitRepoName(dir) : e8.abbreviateFileName(dir);
+  const spec: { [c: string]: string } = { m, M: mode === "magit-status-mode" ? "magit" : m, v: v ?? "", V: v ? ` ${v}` : "", t: n, x: uniquify ? "" : "*", "%": "%" };
+  return String(e8.variable("magit-buffer-name-format") ?? "%x%M%v: %t%x").replace(/%(.)/g, (all, c: string) => spec[c] ?? all);
+}
+e8.defun("magit-generate-buffer-name-default-function", (mode: string, value?: e8.Value) => magitGenerateBufferNameDefaultFunction(String(mode), value));
+
+/**
+ * The name of the Magit buffer of MODE for the repository in DIR: the
+ * buffer's if there is one, else one made by
+ * magit-generate-buffer-name-function, as magit-generate-new-buffer, with
+ * its directory added in angle brackets when magit-uniquify-buffer-names
+ * and another repository's buffer has that name, as uniquify's
+ * post-forward-angle-brackets style does.
  */
 export function magitBufferName(mode: string, dir = magitToplevelOrError(), value?: string[]): string {
-  const format = String(e8.variable("magit-buffer-name-format") ?? "%M%v: %t");
-  const short = mode === "magit-status-mode" ? "magit" : mode.replace(/-mode$/, "");
-  const v = value && value.length > 0 ? `(${value.join(" ")})` : undefined;
-  return format
-    .replace("%M", short)
-    .replace("%m", mode.replace(/-mode$/, ""))
-    .replace("%v", v ?? "")
-    .replace("%V", v ? ` ${v}` : "")
-    .replace("%t", magitRepoName(dir))
-    .replace(/%x/g, "");
+  return magitGetModeBuffer(mode, dir, value) ?? magitGenerateBufferName(mode, dir, value);
+}
+
+/**
+ * A new name for a Magit buffer of MODE for the repository in DIR, locked
+ * to VALUE if given, from magit-generate-buffer-name-function, made
+ * unique as magit-generate-new-buffer and magit-toggle-buffer-lock do.
+ */
+export function magitGenerateBufferName(mode: string, dir: string, value?: string[]): string {
+  const fn = (e8.variable("magit-generate-buffer-name-function") as string | ((mode: string, value?: e8.Value) => string) | null) ?? "magit-generate-buffer-name-default-function";
+  const v = value && value.length > 0 ? value : undefined;
+  const name = e8.letBind({ "default-directory": dir }, () =>
+    fn === "magit-generate-buffer-name-default-function" ? magitGenerateBufferNameDefaultFunction(mode, v) : String(typeof fn === "function" ? fn(mode, v) : v ? e8.funcall(fn, mode, v) : e8.funcall(fn, mode)),
+  );
+  if (!truthy(e8.variable("magit-uniquify-buffer-names"))) return name;
+  return magitUniquifyBufferName(name, dir);
+}
+
+/**
+ * NAME for the buffer of the repository in DIR, made unique among the
+ * Magit buffers of other repositories named so, as
+ * magit--maybe-uniquify-buffer-names has uniquify do: each gets as many
+ * of its parent directories' names, in angle brackets, as tell them
+ * apart, and the others are renamed to match.
+ */
+function magitUniquifyBufferName(name: string, dir: string): string {
+  const base = (b: string): string => b.replace(/<[^<>]*>$/, "");
+  const others = e8.bufferList().filter((b) => {
+    const info = magitBufferInfo(b);
+    return info !== undefined && info.dir !== dir && (b === name || base(b) === name);
+  });
+  if (others.length === 0) return name;
+  // The parent directories of each repository, nearest first.
+  const parents = (d: string): string[] => e8.directoryFileName(e8.fileNameDirectory(e8.directoryFileName(d)) ?? "/").split("/").filter((p) => p !== "").reverse();
+  const dirs = [dir, ...others.map((b) => magitBufferInfo(b)!.dir)];
+  const suffix = (d: string, k: number): string => parents(d).slice(0, k).reverse().join("/");
+  let k = 1;
+  const most = Math.max(...dirs.map((d) => parents(d).length));
+  while (k < most && new Set(dirs.map((d) => suffix(d, k))).size < dirs.length) k++;
+  for (const b of others) {
+    const renamed = `${name}<${suffix(magitBufferInfo(b)!.dir, k)}>`;
+    if (renamed !== b) e8.withCurrentBuffer(b, () => e8.call("rename-buffer", renamed));
+  }
+  return `${name}<${suffix(dir, k)}>`;
 }
 
 /** What a Magit buffer is: its kind and repository, or undefined for another buffer. */
@@ -128,8 +247,19 @@ export const magitBufferInfo = (buffer: string | e8.Buffer = e8.currentBuffer())
  * REFRESH make its content, and shows it, as magit-setup-buffer: KIND
  * names what it shows, as Magit's modes do.
  */
-export function magitSetupBuffer(name: string, mode: e8.DefinedCommand | string, kind: string, refresh: () => void, select = true, locals: { [variable: string]: e8.Value } = {}): string {
+export function magitSetupBuffer(nameIn: string, mode: e8.DefinedCommand | string, kind: string, refresh: () => void, select = true, locals: { [variable: string]: e8.Value } = {}, locked = false): string {
   const dir = magitToplevelOrError();
+  // A buffer LOCKED to what LOCALS show, as magit-setup-buffer-internal's LOCKED: its own, named for that value.
+  let value: string[] | undefined;
+  if (locked) {
+    valueLocals = locals;
+    try {
+      value = magitBufferValue(String(mode));
+    } finally {
+      valueLocals = undefined;
+    }
+  }
+  const name = value ? magitBufferName(String(mode), dir, value) : nameIn;
   const existed = e8.bufferLiveP(e8.getBuffer(name));
   e8.getBufferCreate(name);
   e8.withCurrentBuffer(name, () => {
@@ -144,12 +274,18 @@ export function magitSetupBuffer(name: string, mode: e8.DefinedCommand | string,
       e8.makeLocalVariable(variable);
       e8.setVariable(variable, value);
     }
+    if (value) {
+      e8.makeLocalVariable("magit-buffer-locked-p");
+      e8.setVariable("magit-buffer-locked-p", true);
+    }
     magitXrefSetup(existed, { kind, refresh, dir, locals });
     buffers.set(e8.currentBuffer(), { kind, refresh, dir });
   });
   if (select) magitDisplayBuffer(name);
   e8.withCurrentBuffer(name, () => {
+    magitRunHooks("magit-setup-buffer-hook");
     magitRefreshBuffer(!existed);
+    if (!existed) magitRunHooks("magit-post-create-buffer-hook");
     e8.runHooks("magit-mode-setup-hook");
   });
   return name;
@@ -198,7 +334,7 @@ function displayBufferDefault(buffer: string): number {
   return bufferWindow(buffer)!;
 }
 /** Shows BUFFER as display-buffer does with inhibit-same-window: never in the selected window. */
-function displayBufferInhibitSameWindow(buffer: string): number {
+export function magitDisplayBufferInhibitSameWindow(buffer: string): number {
   const selected = e8.selectedWindow();
   const other = e8.windowList().find((w) => w !== selected && e8.windowBuffer(w) === buffer);
   if (other !== undefined) return other;
@@ -285,7 +421,7 @@ e8.defun("magit-display-buffer-traditional", magitDisplayBufferTraditional);
  * derives from magit-diff-mode or magit-process-mode goes in another window.
  */
 export function magitDisplayBufferSameWindowExceptDiffV1(buffer: string): number {
-  return derivedIn(buffer, "magit-diff-mode", "magit-process-mode") ? displayBufferInhibitSameWindow(buffer) : displayBufferSameWindow(buffer);
+  return derivedIn(buffer, "magit-diff-mode", "magit-process-mode") ? magitDisplayBufferInhibitSameWindow(buffer) : displayBufferSameWindow(buffer);
 }
 e8.defun("magit-display-buffer-same-window-except-diff-v1", magitDisplayBufferSameWindowExceptDiffV1);
 
@@ -381,7 +517,7 @@ export function magitRefreshBuffer(created = false): void {
   const column = e8.point() - e8.lineStart(line);
   const id = at && at.parent ? magitSectionIdent(at) : undefined;
   const offset = at ? e8.lineOf(e8.point()) - e8.lineOf(at.start) : 0;
-  e8.letBind({ "inhibit-read-only": true }, () => magitWithRefreshCache(entry.refresh));
+  e8.letBind({ "inhibit-read-only": true, "magit--refresh-start-time": Date.now() / 1000 }, () => magitWithRefreshCache(entry.refresh));
   const again = id ? magitGetSection(id) : undefined;
   if (again) {
     const target = Math.min(e8.lineOf(again.start) + offset, e8.lineOf(Math.max(again.start, again.end - 1)));
@@ -477,6 +613,9 @@ export function magitModeGetBuffers(dir = magitToplevel()): string[] {
   return e8.bufferList().filter((b) => magitBufferInfo(b)?.dir === dir);
 }
 
+/** Saves the repository's file buffers, if magit-save-repository-buffers says to, as magit-maybe-save-repository-buffers. */
+e8.defun("magit-maybe-save-repository-buffers", () => magitSaveRepositoryBuffers());
+
 /** Saves the repository's modified file buffers, as magit-save-repository-buffers does before git runs. */
 export function magitSaveRepositoryBuffers(): void {
   if (!truthy(e8.variable("magit-save-repository-buffers"))) return;
@@ -567,13 +706,17 @@ export const magitDeleteThing = e8.defineCommand({
 
 e8.defineVariable({ name: "magit-buffer-locked-p", doc: "Whether the current buffer is locked to its value, as magit-toggle-buffer-lock locks it.", value: false, local: true });
 
+/** The locals a buffer is being set up with, which the value it is locked to is worked out from before it has them. */
+let valueLocals: { [variable: string]: e8.Value } | undefined;
+const valueOf = (name: string): e8.Value => (valueLocals && name in valueLocals ? valueLocals[name] : (e8.variable(name) ?? null));
+
 /** A list variable's value as strings. */
 const strings = (name: string): string[] => {
-  const v = e8.variable(name);
+  const v = valueOf(name);
   return Array.isArray(v) ? v.map(String) : v === null || v === undefined || v === false ? [] : [String(v)];
 };
 const stringOr = (name: string): string | undefined => {
-  const v = e8.variable(name);
+  const v = valueOf(name);
   return typeof v === "string" ? v : undefined;
 };
 
@@ -582,8 +725,8 @@ const stringOr = (name: string): string | undefined => {
  * magit-buffer-value: undefined for a buffer that cannot be locked, as a
  * status buffer.
  */
-export function magitBufferValue(): string[] | undefined {
-  const mode = String(e8.variable("major-mode"));
+export function magitBufferValue(modeIn?: string): string[] | undefined {
+  const mode = modeIn ?? String(e8.variable("major-mode"));
   const files = strings("magit-buffer-diff-files");
   switch (mode) {
     case "magit-diff-mode": {
@@ -615,7 +758,7 @@ export function magitBufferValue(): string[] | undefined {
 /** Renames the current buffer to a name for MODE and VALUE not taken yet. */
 function renameForLock(mode: string, value?: string[]): void {
   const dir = magitBufferInfo()?.dir ?? magitToplevelOrError();
-  e8.call("rename-buffer", e8.generateNewBufferName(magitBufferName(mode, dir, value)));
+  e8.call("rename-buffer", e8.generateNewBufferName(magitGenerateBufferName(mode, dir, value)));
 }
 
 export const magitToggleBufferLock = e8.defineCommand({

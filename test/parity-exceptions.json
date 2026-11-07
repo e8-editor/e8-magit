@@ -7,7 +7,20 @@
     "magit-add-change-log-entry-other-window": "Calls add-change-log-entry-other-window, and E8 has no add-log (ChangeLog files).",
     "magit-generate-changelog": "Needs add-log's change-log-insert-entries, diff-mode's diff-add-log-current-defuns and vc-git, which E8 does not have."
   },
-  "options": {},
+  "options": {
+    "magit-credential-cache-daemon-socket": "E8 does not start git's credential cache daemon, which Magit starts for HTTPS remotes.",
+    "magit-cygwin-mount-points": "E8 does not run on Cygwin or Windows, whose file names this translates.",
+    "magit-need-cygwin-noglob": "E8 does not run on Cygwin or Windows, whose git globs arguments.",
+    "magit-git-output-coding-system": "E8 has no coding systems: git's output is read as UTF-8.",
+    "magit-process-ensure-unix-line-ending": "E8 has no coding systems: what is sent to git keeps its line endings.",
+    "magit-remote-git-executable": "E8 has no remote files (TRAMP), so git always runs on this machine.",
+    "magit-revision-show-gravatars": "E8 does not fetch gravatar images.",
+    "magit-view-git-manual-method": "E8 has no Info reader, so there are no Info links to Git's manual to follow.",
+    "magit-region-highlight-hook": "E8 has no redisplay-highlight-region-function, through which Magit draws a selection in place of the region.",
+    "magit-section-keep-region-overlay": "E8 has no redisplay-highlight-region-function, through which Magit draws a selection in place of the region.",
+    "magit-diff-highlight-hunk-region-functions": "E8 has no redisplay-highlight-region-function, through which Magit draws a hunk-internal region.",
+    "magit-diff-unmarked-lines-keep-foreground": "E8 has no redisplay-highlight-region-function, through which Magit draws a hunk-internal region."
+  },
   "faces": {},
   "keys": {
     "magit-section-heading-map": "Belongs to magit-section, whose E8 port (e8-magit-section) puts no keymap on section headings: its keys are double clicks and a click in the left margin.",

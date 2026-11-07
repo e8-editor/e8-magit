@@ -11,6 +11,8 @@
 import { ertDeftest, should, shouldEqual } from "ert";
 import { git, tempDir, write, read, init, repo, history, bare, status, withRepos, settle, visible, gotoText, typed, changes } from "magit-test-helpers";
 import { magitGitVersionGe } from "magit-git";
+import * as margins from "magit-margin";
+import * as transient from "magit-transient";
 import { magitListReleases, versionToList } from "magit-tag";
 import { magitCloneInternal, magitCloneNameToUrl, magitCloneUrlToName } from "magit-clone";
 
@@ -280,9 +282,14 @@ ertDeftest("magit-an-instant-fixup-goes-into-the-commit", () => {
     git(dir, "commit", "-q", "-m", "Second");
     status(dir);
     const first = git(dir, "rev-parse", "--short", "HEAD~").trim();
-    // s stages the untracked c.txt, point's section; the fixup is folded
-    // into the first commit: two commits still, c.txt in the first.
-    e8.executeKbdMacro(`s c F ${typed(first)} RET`);
+    // s stages the untracked c.txt, point's section; an instant fixup
+    // always has its commit selected in a log, where . picks the first;
+    // the fixup is folded into it: two commits still, c.txt in the first.
+    e8.executeKbdMacro("s c F");
+    shouldEqual(e8.variable("major-mode"), "magit-log-select-mode");
+    gotoText(first);
+    e8.executeKbdMacro(".");
+    settle(() => git(dir, "log", "--format=%s") === "Second\nFirst commit\n");
     shouldEqual(git(dir, "log", "--format=%s"), "Second\nFirst commit\n");
     shouldEqual(git(dir, "show", "HEAD~:c.txt"), "new\n");
   });
@@ -625,4 +632,68 @@ ertDeftest("magit-git-command-runs-git-in-a-shell", () => {
     settle(() => git(dir, "tag") === "from-q\n");
     shouldEqual(git(dir, "tag"), "from-q\n");
   });
+});
+
+ertDeftest("magit-pull-or-fetch-adds-fetch-suffixes-to-the-pull-menu", () => {
+  const dir = repo();
+  withRepos([dir], () => {
+    status(dir);
+    const menu = (): string => {
+      e8.executeKbdMacro("F");
+      const text = e8.withCurrentBuffer(" *transient*", () => e8.bufferText());
+      e8.executeKbdMacro("C-g");
+      return text;
+    };
+    let text = menu();
+    should(text.startsWith("Arguments"), text);
+    should(!text.includes("Fetch from"), text);
+    e8.letBind({ "magit-pull-or-fetch": true }, () => (text = menu()));
+    should(text.startsWith("Pull arguments"), text);
+    for (const line of ["Fetch from", " f remotes", " F remotes and prune", "Fetch", " o another branch", " s explicit refspec", " m submodules"]) should(text.includes(line), `the menu has ${JSON.stringify(line)}:\n${text}`);
+  });
+});
+
+ertDeftest("magit-define-global-key-bindings-adds-the-set-it-names", () => {
+  shouldEqual(e8.lookupKey("global-map", "C-x g"), "magit-status");
+  shouldEqual(e8.lookupKey("global-map", "C-x M-g"), "magit-dispatch");
+  shouldEqual(e8.lookupKey("global-map", "C-c M-g"), "magit-file-dispatch");
+  try {
+    // The recommended set's keys are added only where the commands are not bound already.
+    e8.letBind({ "magit-define-global-key-bindings": "recommended" }, () => e8.funcall("magit-maybe-define-global-key-bindings"));
+    shouldEqual(e8.lookupKey("global-map", "C-c g"), undefined);
+    e8.bindKey("C-x M-g", null);
+    e8.letBind({ "magit-define-global-key-bindings": "recommended" }, () => e8.funcall("magit-maybe-define-global-key-bindings"));
+    shouldEqual(e8.lookupKey("global-map", "C-c g"), "magit-dispatch");
+    // nil adds none, even with FORCE.
+    e8.bindKey("C-c g", null);
+    e8.letBind({ "magit-define-global-key-bindings": null }, () => e8.funcall("magit-maybe-define-global-key-bindings", true));
+    shouldEqual(e8.lookupKey("global-map", "C-c g"), undefined);
+  } finally {
+    e8.bindKey("C-c g", null);
+    e8.bindKey("C-x M-g", "magit-dispatch" as e8.CommandName);
+  }
+});
+
+ertDeftest("magit-ellipsis-truncates-the-author-in-the-margin", () => {
+  const dir = history();
+  withRepos([dir], () => {
+    status(dir);
+    e8.call("magit-log-current" as e8.CommandName);
+    const author = "Someone With A Very Long Name";
+    const margin = (): string => String(margins.magitLogFormatAuthorMargin(author, Date.now() / 1000)).slice(0, 19);
+    shouldEqual(margin(), "Someone With A Ve… ");
+    e8.letBind({ "magit-ellipsis": [["margin", [null, ">>"]], [true, ["…", "..."]]] }, () => shouldEqual(margin(), "Someone With A V>> "));
+  });
+});
+
+ertDeftest("magit-openpgp-default-signing-key-is-used-without-asking", () => {
+  const keys = ["AAAA1111", "BBBB2222"];
+  const output = "sec:u:255:22:1111:1::::::scESC:::\nfpr:::::::::AAAA1111:\nssb:u:255:18:9999:1::::::e:::\nfpr:::::::::CCCC9999:\nsec:u:255:22:2222:1::::::scESC:::\nfpr:::::::::BBBB2222:\nsec:u:255:22:3333:1::::::e:::\nfpr:::::::::DDDD3333:\n";
+  shouldEqual(transient.magitGpgSigningKeys(output), keys);
+  // The only key that can sign is used without asking.
+  shouldEqual(transient.magitReadGpgSigningKey("Sign as: ", undefined, ["AAAA1111"]), "AAAA1111");
+  e8.letBind({ "magit-openpgp-default-signing-key": "BBBB2222" }, () => shouldEqual(transient.magitReadGpgSigningKey("Sign as: ", undefined, keys), "BBBB2222"));
+  // Otherwise one is read.
+  e8.unreadKeys("A A A A 1 1 1 1 RET");
+  shouldEqual(transient.magitReadGpgSigningKey("Sign as: ", undefined, keys), "AAAA1111");
 });

@@ -78,7 +78,7 @@ export function magitDiredLog(follow = false): string {
   const files = marked.marked ? marked.files : [String(e8.variable("default-directory"))];
   if (follow && !args.includes("--follow") && files.length === 1) args = ["--follow", ...args];
   return e8.letBind({ "default-directory": topdir! }, () =>
-    magitLogSetupBuffer([magitGetCurrentBranch() ?? "HEAD"], args, files.map((f) => magitFileRelativeName(e8.expandFileName(f)) ?? f).map((f) => (f === "" ? "." : f))),
+    magitLogSetupBuffer([magitGetCurrentBranch() ?? "HEAD"], args, files.map((f) => magitFileRelativeName(e8.expandFileName(f)) ?? f).map((f) => (f === "" ? "." : f)), undefined, truthy(e8.variable("magit-log-buffer-file-locked"))),
   );
 }
 
