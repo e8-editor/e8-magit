@@ -247,7 +247,7 @@ function insertStatus(): void {
     // Each section ends with the blank line after it, which hides with it, as Magit inserts it.
     if (untracked.length > 0) {
       insertSection("untracked", undefined, true, () => {
-        insertHeading(face("Untracked files", "magit-section-heading"), ` (${untracked.length})`, "\n");
+        insertHeading(untracked.length, "Untracked files");
         for (const f of untracked) insertSection("file", { file: f, kind: "untracked" }, false, () => insertHeading(face(f, "magit-filename"), "\n"));
         e8.insert("\n");
       });
@@ -255,7 +255,7 @@ function insertStatus(): void {
     const unstaged = parseDiff(gitOutput(["diff", "--no-ext-diff", "--no-prefix", "-p"]).output);
     if (unstaged.length > 0) {
       insertSection("unstaged", undefined, false, () => {
-        insertHeading(face("Unstaged changes", "magit-section-heading"), ` (${unstaged.length})`, "\n");
+        insertHeading(true, "Unstaged changes");
         insertFiles(unstaged, "unstaged");
         e8.insert("\n");
       });
@@ -263,7 +263,7 @@ function insertStatus(): void {
     const staged = parseDiff(gitOutput(["diff", "--cached", "--no-ext-diff", "--no-prefix", "-p"]).output);
     if (staged.length > 0) {
       insertSection("staged", undefined, false, () => {
-        insertHeading(face("Staged changes", "magit-section-heading"), ` (${staged.length})`, "\n");
+        insertHeading(true, "Staged changes");
         insertFiles(staged, "staged");
         e8.insert("\n");
       });
@@ -271,7 +271,7 @@ function insertStatus(): void {
     const stashes = gitLines(["stash", "list", "--format=%gd%x00%gs"]);
     if (stashes.length > 0) {
       insertSection("stashes", undefined, true, () => {
-        insertHeading(face("Stashes", "magit-section-heading"), ` (${stashes.length})`, "\n");
+        insertHeading("Stashes:");
         for (const s of stashes) {
           const [ref, subject] = s.split("\0");
           insertSection("stash", ref, false, () => insertHeading(face(ref, "magit-hash"), ` ${subject}`, "\n"));

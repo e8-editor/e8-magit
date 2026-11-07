@@ -15,7 +15,7 @@
 // Free Software Foundation, either version 3 of the License, or (at your
 // option) any later version.
 
-import { currentSection, magitSectionMode, sections, type Section } from "magit-section";
+import { currentSection, magitGetSection, magitSectionIdent, magitSectionMode } from "magit-section";
 import { PerBuffer, truthy } from "subr";
 import { magitToplevel, magitToplevelOrError, magitWithRefreshCache } from "magit-git";
 
@@ -149,16 +149,6 @@ e8.defun("magit-display-buffer-fullframe-status-v1", (buffer: string) => {
   } else magitDisplayBufferTraditional(buffer);
 });
 
-/** A section's place among its siblings, to find it again after a refresh, as magit-section-ident. */
-export function magitSectionIdent(s: Section): string {
-  const parts: string[] = [];
-  for (let x: Section | undefined = s; x && x.parent; x = x.parent) {
-    const v = x.value as { file?: string; hunk?: { heading: string } } | string | undefined;
-    parts.unshift(`${x.type}:${typeof v === "string" ? v : (v?.file ?? "")}${typeof v === "object" && v?.hunk ? v.hunk.heading : ""}`);
-  }
-  return parts.join("/");
-}
-
 /** Makes the current Magit buffer again, keeping point on the same section or line, as magit-refresh-buffer. */
 export function magitRefreshBuffer(): void {
   const entry = magitBufferInfo();
@@ -166,10 +156,10 @@ export function magitRefreshBuffer(): void {
   const at = currentSection();
   const line = e8.lineOf(e8.point());
   const column = e8.point() - e8.lineStart(line);
-  const id = at ? magitSectionIdent(at) : undefined;
+  const id = at && at.parent ? magitSectionIdent(at) : undefined;
   const offset = at ? e8.lineOf(e8.point()) - e8.lineOf(at.start) : 0;
   e8.letBind({ "inhibit-read-only": true }, () => magitWithRefreshCache(entry.refresh));
-  const again = id ? (sections()?.all ?? []).find((s) => magitSectionIdent(s) === id) : undefined;
+  const again = id ? magitGetSection(id) : undefined;
   if (again) {
     const target = Math.min(e8.lineOf(again.start) + offset, e8.lineOf(Math.max(again.start, again.end - 1)));
     e8.gotoChar(Math.min(e8.lineStart(target) + column, e8.lineEnd(target)));
