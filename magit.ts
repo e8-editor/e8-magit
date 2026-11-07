@@ -83,6 +83,7 @@ import "magit-log";
 import "git-rebase";
 import { magitAm, magitCherryApply, magitCherryPick, magitRebase, magitRevert, magitRevertNoCommit } from "magit-sequence";
 import { magitTag } from "magit-tag";
+import { magitBisect } from "magit-bisect";
 import { magitRemote } from "magit-remote";
 import { magitClone } from "magit-clone";
 import { magitGitMergetool, magitRunGitGui, magitRunGitk, magitRunGitkAll, magitRunGitkBranches } from "magit-extras";
@@ -1500,7 +1501,7 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
           items: [
             ["A", "Apply", magitCherryPick],
             ["b", "Branch", branchMenu],
-            ["B", "Bisect", notYet("magit-bisect", "Bisecting")],
+            ["B", "Bisect", magitBisect],
             ["c", "Commit", commitMenu],
             ["C", "Clone", magitClone],
             ["d", "Diff", diffMenu],
@@ -1602,6 +1603,7 @@ const bindings: [string, e8.DefinedCommand | string][] = [
   ["M", magitRemote],
   ["Q", magitGitCommand],
   ["t", magitTag],
+  ["B", magitBisect],
   ["!", magitRun],
   ["l", logMenu],
   ["d", diffMenu],
