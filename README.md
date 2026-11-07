@@ -16,7 +16,7 @@ E8 installs it at its newest version tag into `repos/` beside `init.ts`, with [e
 
 ## Using it
 
-`C-x g` (`magit-status`, or `M-x magit`) in a file or directory of a repository shows its status; outside one it offers to make one. `C-x M-g` opens the dispatch menu from anywhere. In Magit's buffers:
+`C-x g` (`magit-status`, or `M-x magit`) in a file or directory of a repository shows its status; outside one, or with `C-u`, it reads one of the repositories `magit-repository-directories` finds, or any directory with `C-u C-u`, and offers to make one there if it is none. `C-x M-g` opens the dispatch menu from anywhere. In Magit's buffers:
 
 | Key | Does |
 | --- | --- |
@@ -63,6 +63,7 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - **Ignoring** (`i`): at the top, in a subdirectory, privately or for all repositories; skip-worktree and assume-unchanged. **Notes** (`T`): edit, remove, merge and prune, and the notes refs. **Patches** (`W`): create with git format-patch and its options, apply, save a diff. **Bisect** (`B`): start, good, bad, mark, skip, run a script, reset, with the bisect sections in the status buffer.
 - **Worktrees** (`Z`): check out, branch, move, delete, visit, and their sections. **Submodules** (`o`): add, register, populate, update, synchronize, unpopulate, remove, list, and the module sections. **Subtrees** (`O`): import (add, merge, pull) and export (push, split).
 - **Files** (`C-c M-g` in a file's buffer): stage, unstage, untrack, rename, delete and check out the file, diff, log and trace it, and visit it at a revision (`magit-find-file`), in the index, or step through its revisions with `n` and `p` in `magit-blob-mode`; `magit-update-index` writes the index's version back; `K` and `R` untrack and rename in Magit buffers.
+- **Repositories** (`M-x magit-list-repositories`): the repositories `magit-repository-directories` names, found to the depth it gives, a line each with the columns of `magit-repolist-columns` (name, version, commits to pull and push, path; the branch, upstream, flags, stashes and branches columns are there to add), sorted by `magit-repolist-sort-key`; `RET` shows a repository's status, `m` and `u` mark and unmark, `f` fetches the marked ones, or all after asking, and `5` visits a file in each in a frame of its own.
 - From the dispatch menu, cherries, one command.
 
 ## What is missing
@@ -70,6 +71,7 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - **Not there at all**: blame; ediff; applying or reversing a change from elsewhere (`a`, `v`). Their keys in the menus say so.
 - Suffixes Magit puts above level 4 (signing, `--exec`, a rebase's strategy, some of clone's) are left out of the menus until E8's transient has levels (E8 0.5).
 - Only programs E8 starts can use E8 as their editor (see e8-with-editor).
+- The repository list does not turn on `hl-line-mode`, which E8 lacks, nor give Imenu its entries.
 
 ## Credit
 

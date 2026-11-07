@@ -485,7 +485,11 @@ export const magitStatus = e8.defineCommand({
   run: (prefix: e8.Value) => {
     const top = magitToplevel();
     if (top && !truthy(prefix)) return void magitStatusSetupBuffer(top);
-    const answer = e8.readFileName(truthy(prefix) ? "Git repository: " : "Initialize Git repository: ", { dir: String(e8.variable("default-directory")) });
+    // magit-repos.ts reads one of magit-repository-directories' repositories, or any directory.
+    const readDirectory = truthy(prefix) && e8.prefixNumericValue(prefix as e8.PrefixArg) >= 16;
+    const answer = e8.fboundp("magit-read-repository")
+      ? String(e8.funcall("magit-read-repository", readDirectory))
+      : e8.readFileName("Git repository: ", { dir: magitToplevel() ?? String(e8.variable("default-directory")) });
     const dir = e8.fileNameAsDirectory(e8.expandFileName(answer));
     const toplevel = magitToplevel(dir);
     if (toplevel && toplevel === dir) return void magitStatusSetupBuffer(dir);

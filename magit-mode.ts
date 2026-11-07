@@ -209,6 +209,7 @@ export function magitRefresh(): void {
     e8.runHooks("magit-pre-refresh-hook");
     const current = magitBufferInfo() ? e8.bufferName() : undefined;
     if (current) magitRefreshBuffer();
+    else if (e8.derivedModeP("tabulated-list-mode")) e8.call("tabulated-list-revert");
     const status = magitGetModeBuffer("magit-status-mode");
     if (status && status !== current) e8.withCurrentBuffer(status, magitRefreshBuffer);
     e8.runHooks("magit-post-refresh-hook");
