@@ -1,0 +1,23 @@
+{
+  "buffer": "magit-revision: repo",
+  "point": 1,
+  "text": "main 6a67148d188515704cb4688c8e257db3f7611cdc\nAuthor:     Tester <t@example.com>\nAuthorDate: Thu Jan 1 12:02:00 2026 +0000\nCommit:     Tester <t@example.com>\nCommitDate: Thu Jan 1 12:02:00 2026 +0000\n\nParent:     d11c9b7 Base\nMerged:     main\nContained:  main\n\nRename, delete and change a binary\n\n3 files changed, 1 deletion(-)\nbin.dat            | Bin 3 -> 3 bytes \ngone.txt           |   1 -\nold.txt => new.txt |   0 \n\nmodified   bin.dat (binary)\ndeleted    gone.txt\nrenamed    old.txt -> new.txt\nrename from old.txt\nrename to new.txt\n\n",
+  "faces": [
+    "1:0-4 magit-branch-current",
+    "1:5-45 magit-hash",
+    "7:12-19 magit-hash",
+    "8:12-16 magit-branch-local",
+    "9:12-16 magit-branch-local",
+    "11:0-34 magit-diff-revision-summary",
+    "13:0-30 magit-diff-file-heading",
+    "14:0-7 magit-filename",
+    "15:0-8 magit-filename",
+    "15:25-26 magit-diffstat-removed",
+    "16:0-18 magit-filename",
+    "18:0-18 magit-diff-file-heading",
+    "19:0-19 magit-diff-file-heading",
+    "20:0-29 magit-diff-file-heading",
+    "21:0-19 default",
+    "22:0-17 magit-diff-context"
+  ]
+}

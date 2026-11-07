@@ -1,0 +1,19 @@
+{
+  "buffer": "magit-revision: repo",
+  "point": 1,
+  "text": "main 77d9ece39a008f8e9dcb01956c6734a3136c7044\nAuthor:     Tester <t@example.com>\nAuthorDate: Thu Jan 1 12:03:00 2026 +0000\nCommit:     Tester <t@example.com>\nCommitDate: Thu Jan 1 12:03:00 2026 +0000\n\nParent:     2b5c151 Two\nMerged:     main\nContained:  main\n\nThree\n\n1 file changed, 1 insertion(+)\nThree.txt | 1 +\n\nnew file   Three.txt\n@@ -0,0 +1 @@\n+Three\n\n",
+  "faces": [
+    "1:0-4 magit-branch-current",
+    "1:5-45 magit-hash",
+    "7:12-19 magit-hash",
+    "8:12-16 magit-branch-local",
+    "9:12-16 magit-branch-local",
+    "11:0-5 magit-diff-revision-summary",
+    "13:0-30 magit-diff-file-heading",
+    "14:0-9 magit-filename",
+    "14:14-15 magit-diffstat-added",
+    "16:0-20 magit-diff-file-heading",
+    "17:0-13 magit-diff-hunk-heading",
+    "18:0-6 magit-diff-added"
+  ]
+}

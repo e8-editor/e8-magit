@@ -1,0 +1,13 @@
+{
+  "buffer": "magit-diff: repo",
+  "point": 1,
+  "text": "2 files changed, 4 deletions(-)\nbin.dat | Bin 3 -> 3 bytes \nnew.txt |   4 ----\n\nmodified   bin.dat (binary)\ndeleted    new.txt\n\n",
+  "faces": [
+    "1:0-31 magit-diff-file-heading",
+    "2:0-7 magit-filename",
+    "3:0-7 magit-filename",
+    "3:14-18 magit-diffstat-removed",
+    "5:0-18 magit-diff-file-heading",
+    "6:0-18 magit-diff-file-heading"
+  ]
+}

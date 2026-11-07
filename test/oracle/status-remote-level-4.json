@@ -1,0 +1,27 @@
+{
+  "buffer": "magit: repo",
+  "point": 5,
+  "text": "Head:     main Local commit\nMerge:    origin/main Remote commit\nTag:      v0.1 (3)\n\nUnstaged changes (1)\nmodified   a.txt\n@@ -1,2 +1,3 @@\n one\n two\n+three\n\nStashes (2)\nUnmerged into origin/main (1)\ne6b47a8 main Local commit\n\nUnpulled from origin/main (1)\n",
+  "faces": [
+    "1:10-14 magit-branch-local",
+    "2:10-21 magit-branch-remote",
+    "3:10-14 magit-tag",
+    "3:16-17 magit-branch-local",
+    "5:0-16 magit-section-heading",
+    "5:16-18 magit-section-child-count",
+    "5:19-20 magit-section-child-count",
+    "6:0-16 magit-diff-file-heading",
+    "7:0-15 magit-diff-hunk-heading",
+    "8:0-4 magit-diff-context-highlight",
+    "9:0-4 magit-diff-context-highlight",
+    "10:0-6 magit-diff-added-highlight",
+    "12:0-7 magit-section-heading",
+    "12:7-11 magit-section-child-count",
+    "13:0-14 magit-section-heading",
+    "13:14-25 magit-branch-remote",
+    "14:0-7 magit-hash",
+    "14:8-12 magit-branch-current",
+    "16:0-14 magit-section-heading",
+    "16:14-25 magit-branch-remote"
+  ]
+}
