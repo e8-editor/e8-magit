@@ -334,13 +334,19 @@ export function magitToplevel(directory?: string): string | undefined {
   return magitWithCache(`${dir}\0toplevel`, () => {
     const r = e8.callProcess([magitGitExecutable(), "rev-parse", "--show-toplevel"], { directory: dir });
     if (r.exit === 0 && r.output.trim() !== "") return e8.fileNameAsDirectory(r.output.trim());
-    // A bare repository, or inside the .git directory: its git directory.
+    // Inside the control directory, as Magit's second branch: a bare
+    // repository's is its toplevel; else the linked working tree its
+    // gitdir file names, or the directory the control directory is in.
+    const d = e8.callProcess([magitGitExecutable(), "rev-parse", "--absolute-git-dir"], { directory: dir });
+    if (d.exit !== 0 || d.output.trim() === "") return undefined;
+    const gitdir = e8.fileNameAsDirectory(d.output.trim());
     const g = e8.callProcess([magitGitExecutable(), "rev-parse", "--is-bare-repository"], { directory: dir });
-    if (g.exit === 0 && g.output.trim() === "true") {
-      const d = e8.callProcess([magitGitExecutable(), "rev-parse", "--absolute-git-dir"], { directory: dir });
-      return d.exit === 0 ? e8.fileNameAsDirectory(d.output.trim()) : undefined;
-    }
-    return undefined;
+    if (g.exit === 0 && g.output.trim() === "true") return gitdir;
+    const link = e8.expandFileName("gitdir", gitdir);
+    const wtree = e8.fileExistsP(link) ? e8.readTextFile(link).split("\n")[0].trim() : undefined;
+    // Ignore ".git/gitdir" files that result from an old git bug, as Magit does.
+    if (wtree && wtree !== ".git") return e8.fileNameDirectory(wtree);
+    return e8.fileNameDirectory(e8.directoryFileName(gitdir));
   });
 }
 
