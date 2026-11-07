@@ -31,7 +31,6 @@
 import { currentSection, insertHeading, insertRoot, insertSection, magitSectionMode, sectionAt, sections, show, type Section } from "magit-section";
 import { transientArgs, transientDefinePrefix, type Group } from "transient";
 import { forwardLine, PerBuffer, truthy } from "subr";
-import { withEditorEnv, withEditorFilter } from "with-editor";
 import { magitCompletingRead } from "magit-base";
 import {
   magitFormatRefLabels,
@@ -54,6 +53,20 @@ import {
   magitToplevelOrError,
   magitWithRefreshCache,
 } from "magit-git";
+import {
+  magitDiffMode,
+  magitLogMode,
+  magitMode,
+  magitRefreshAll,
+  magitRefreshAllCommand,
+  magitRefreshBuffer,
+  magitRefreshCommand,
+  magitRepoName,
+  magitRevisionMode,
+  magitSetupBuffer,
+  magitStatusMode,
+} from "magit-mode";
+import { magitProcessBufferCommand, magitRunGit, magitRunGitWithInput, magitStartGitWith } from "magit-process";
 
 // Faces.
 
@@ -89,9 +102,6 @@ export const toplevel = (dir?: string): string | undefined => magitToplevel(dir)
 /** The repository the current buffer belongs to, or an error. */
 const repo = (): string => magitToplevelOrError();
 
-/** The commands run and their output, for $ to show, as the magit-process buffer has them. */
-const processLog: { args: string[]; exit: number; output: string; dir: string }[] = [];
-
 /** Runs git with ARGS in the repository: its exit code and output. */
 export function gitOutput(args: string[], input?: string, dir = repo()): { exit: number; output: string } {
   return magitGitRun(args, { input, dir });
@@ -100,59 +110,14 @@ export function gitOutput(args: string[], input?: string, dir = repo()): { exit:
 const gitString = (args: string[]): string | undefined => magitGitString(...args);
 const gitLines = (args: string[]): string[] => magitGitLines(...args);
 
-/** Runs git for its effect, logging it for $, and refreshes the status, as magit-run-git; an error says what git said. */
+/** Runs git for its effect and refreshes, as magit-run-git; whether it succeeded. */
 export function runGit(args: string[], input?: string): boolean {
-  saveRepositoryBuffers();
-  const dir = repo();
-  const r = gitOutput(args, input, dir);
-  processLog.push({ args, exit: r.exit, output: r.output, dir });
-  refreshAll();
-  if (r.exit !== 0) {
-    const line = r.output.split("\n").find((l) => l.trim() !== "") ?? `git exited with code ${r.exit}`;
-    e8.message(`${line.replace(/^(error|fatal): /, "")} ... [Hit $ to see buffer magit-process: ${e8.fileNameNondirectory(dir.replace(/\/$/, ""))} for details]`);
-    return false;
-  }
-  return true;
+  return (input !== undefined ? magitRunGitWithInput(input, args) : magitRunGit(args)) === 0;
 }
 
-/** Runs git without waiting, as push and pull do, logging its output and refreshing when it ends, as magit-run-git-async. */
-export function runGitAsync(args: string[], what: string, editor = false, env: { [name: string]: string } = {}): void {
-  saveRepositoryBuffers();
-  const dir = repo();
-  const entry = { args, exit: -1, output: "", dir };
-  processLog.push(entry);
-  e8.message(`Running git ${args.join(" ")}`);
-  const collect = (_p: string, output: string) => {
-    entry.output += output;
-  };
-  e8.makeProcess({
-    name: "magit-git",
-    command: [magitGitExecutable(), ...magitProcessGitArguments(args)],
-    directory: dir,
-    // With an editor, git asks E8 to edit its messages and lists, as magit-run-git-with-editor.
-    env: { GIT_TERMINAL_PROMPT: "0", ...(editor ? withEditorEnv() : {}), ...env },
-    connectionType: "pipe",
-    filter: editor ? withEditorFilter(collect) : collect,
-    sentinel: (_p, event) => {
-      entry.exit = event.startsWith("finished") ? 0 : Number(/code (\d+)/.exec(event)?.[1] ?? 1);
-      e8.withCurrentBuffer(e8.currentBuffer(), () => refreshAll(dir));
-      if (entry.exit === 0) e8.message(`${what}...done`);
-      else e8.message(`${(entry.output.split("\n").find((l) => l.trim()) ?? what).replace(/^(error|fatal): /, "")} ... [Hit $ to see buffer magit-process for details]`);
-    },
-  });
-}
-
-/** Saves the repository's modified file buffers first, as magit-save-repository-buffers. */
-function saveRepositoryBuffers(): void {
-  if (!truthy(e8.variable("magit-save-repository-buffers"))) return;
-  const top = toplevel();
-  if (!top) return;
-  for (const b of e8.bufferList()) {
-    e8.withCurrentBuffer(b, () => {
-      const f = e8.bufferFileName();
-      if (f && e8.bufferModified() && e8.expandFileName(f).startsWith(top)) e8.call("save-buffer");
-    });
-  }
+/** Runs git in the background, refreshing when it ends, as magit-run-git-async; with EDITOR, as magit-run-git-with-editor. */
+export function runGitAsync(args: string[], _what: string, editor = false, env: { [name: string]: string } = {}): void {
+  magitStartGitWith(args, { editor, env });
 }
 
 // Inserting the status buffer.
@@ -341,86 +306,6 @@ function insertStatus(): void {
   });
 }
 
-// Buffers.
-
-/** What each Magit buffer shows and how to make it again. */
-const buffers = new PerBuffer<{ kind: string; refresh: () => void }>();
-
-/** Makes or shows a Magit buffer for the repository, as magit-setup-buffer: NAME, its mode, and what refreshes it. */
-function setupBuffer(name: string, mode: e8.DefinedCommand, kind: string, refresh: () => void, select = true): string {
-  const dir = repo();
-  const existed = e8.bufferLiveP(e8.getBuffer(name));
-  e8.getBufferCreate(name);
-  e8.withCurrentBuffer(name, () => {
-    if (!existed) {
-      e8.call(mode);
-      e8.makeLocalVariable("default-directory");
-      e8.setVariable("default-directory", dir);
-    }
-    buffers.set(e8.currentBuffer(), { kind, refresh });
-    refreshBuffer();
-  });
-  if (select) e8.call("switch-to-buffer", name);
-  return name;
-}
-
-/** Makes the current Magit buffer again, keeping point on the same section, as magit-refresh-buffer. */
-function refreshBuffer(): void {
-  const entry = buffers.get(e8.currentBuffer());
-  if (!entry) return;
-  const at = currentSection();
-  const line = e8.lineOf(e8.point());
-  const id = at ? sectionPath(at) : undefined;
-  e8.letBind({ "inhibit-read-only": true }, () => magitWithRefreshCache(entry.refresh));
-  const again = id ? (sections()?.all ?? []).find((s) => sectionPath(s) === id) : undefined;
-  if (again) e8.gotoChar(again.start);
-  else e8.gotoChar(e8.lineStart(Math.min(line, e8.lineCount() - 1)));
-  e8.setBufferModified(false);
-}
-
-const sectionPath = (s: Section): string => {
-  const parts: string[] = [];
-  for (let x: Section | undefined = s; x && x.parent; x = x.parent) {
-    const v = x.value as { file?: string; hunk?: { heading: string } } | string | undefined;
-    parts.unshift(`${x.type}:${typeof v === "string" ? v : (v?.file ?? "")}${typeof v === "object" && v?.hunk ? v.hunk.heading : ""}`);
-  }
-  return parts.join("/");
-};
-
-/** Refreshes every Magit buffer of the repository, as magit-refresh does after a command. */
-function refreshAll(dir = toplevel()): void {
-  magitWithRefreshCache(() => refreshEach(dir));
-}
-function refreshEach(dir: string | undefined): void {
-  for (const b of e8.bufferList()) {
-    const buf = e8.getBuffer(b);
-    if (!buf || !buffers.get(buf)) continue;
-    e8.withCurrentBuffer(b, () => {
-      if (toplevel() === dir) refreshBuffer();
-    });
-  }
-}
-
-const repoName = (dir: string): string => e8.fileNameNondirectory(dir.replace(/\/$/, ""));
-
-// Modes.
-
-const modeBindings: { [keys: string]: string } = {};
-
-export const magitMode = e8.defineMajorMode({
-  name: "magit-mode",
-  modeName: "Magit",
-  parent: magitSectionMode,
-  doc: "Parent major mode of Magit's buffers.",
-});
-
-export const magitStatusMode = e8.defineMajorMode({ name: "magit-status-mode", modeName: "Magit", parent: magitMode, doc: "Mode for looking at Git status: the files changed, staged and untracked, and the commits." });
-export const magitLogMode = e8.defineMajorMode({ name: "magit-log-mode", modeName: "Magit Log", parent: magitMode, doc: "Mode for looking at Git log." });
-export const magitRevisionMode = e8.defineMajorMode({ name: "magit-revision-mode", modeName: "Magit Rev", parent: magitMode, doc: "Mode for looking at a Git commit." });
-export const magitDiffMode = e8.defineMajorMode({ name: "magit-diff-mode", modeName: "Magit Diff", parent: magitMode, doc: "Mode for looking at a Git diff." });
-export const magitProcessMode = e8.defineMajorMode({ name: "magit-process-mode", modeName: "Magit Process", parent: magitMode, doc: "Mode for looking at Git process output." });
-void modeBindings;
-
 /** Shows the status of the repository, as magit-status. */
 export const magitStatus = e8.defineCommand({
   name: "magit-status",
@@ -443,8 +328,12 @@ export const magitStatus = e8.defineCommand({
   },
 });
 
-const refreshCommand = e8.defineCommand({ name: "magit-refresh", doc: "Refresh the current buffer.", run: () => refreshBuffer() });
-const refreshAllCommand = e8.defineCommand({ name: "magit-refresh-all", doc: "Refresh all buffers belonging to the current repository.", run: () => refreshAll() });
+const refreshCommand = magitRefreshCommand;
+const refreshAllCommand = magitRefreshAllCommand;
+const setupBuffer = magitSetupBuffer;
+const refreshAll = magitRefreshAll;
+const refreshBuffer = magitRefreshBuffer;
+const repoName = magitRepoName;
 
 // Applying: staging, unstaging and discarding.
 
@@ -1005,28 +894,7 @@ const diffUnstaged = e8.defineCommand({
 
 // The process buffer.
 
-const processBuffer = e8.defineCommand({
-  name: "magit-process-buffer",
-  doc: "Show the git commands Magit ran and their output.",
-  run: () => {
-    const dir = repo();
-    setupBuffer(`magit-process: ${repoName(dir)}`, magitProcessMode, "process", () =>
-      insertRoot("processbuf", () => {
-        for (const p of processLog.filter((x) => x.dir === dir)) {
-          insertSection("process", p.args.join(" "), true, () => {
-            insertHeading(face(`${p.exit < 0 ? "run" : String(p.exit).padStart(3)} `, p.exit === 0 ? "magit-process-ok" : "magit-process-ng"), face(`git ${p.args.join(" ")}`, "magit-section-heading"), "\n");
-            if (p.output) e8.insert(p.output.endsWith("\n") ? p.output : `${p.output}\n`);
-          });
-        }
-      }),
-    );
-    const last = sections()?.root.children.at(-1);
-    if (last) {
-      show(last);
-      e8.gotoChar(last.start);
-    }
-  },
-});
+const processBuffer = magitProcessBufferCommand;
 
 // The dispatch menu and the keys.
 
