@@ -2,7 +2,7 @@
 
 Git in a status buffer of sections, for [E8](https://github.com/e8-editor/e8): `C-x g` shows the repository, and single keys stage, unstage, discard, commit, branch, push, pull, rebase and stash, with Magit's menus. A port of [Magit](https://github.com/magit/magit) 4.4.0.
 
-**This is a subset of Magit.** The status buffer, staging, committing, branching, pushing and pulling, the log, diffs, stashing, interactive rebasing and ediff work, and every menu shows what Magit's does; but many of the log's and diff's options do nothing yet. [What works](#what-works) and [what is missing](#what-is-missing) below say which, and [docs/plan.md](docs/plan.md) is the plan for porting the rest, step by step. Its versions start at v0.1.0.
+**A port of all of Magit 4.4.0**, as E8 runs it: the status buffer, staging and discarding, committing, branching, merging, rebasing and the rest of the sequencer, pushing, pulling and fetching, logs, diffs and the refs buffer, stashes, blame, bisect, worktrees, submodules, subtrees, notes, patches, ediff, wip refs, and every menu as Magit's shows it. A parity test checks the port against every command, option, face and key binding Magit defines, recorded from Emacs; [what is missing](#what-is-missing) lists the exceptions, each with its reason, and most are things E8 itself does not have. [docs/plan.md](docs/plan.md) is how the port was made.
 
 ## Installing
 
@@ -12,7 +12,7 @@ In `~/.config/e8/init.ts`:
 e8.usePackage("e8-editor/e8-magit");
 ```
 
-E8 installs it at its newest version tag into `repos/` beside `init.ts`, with [e8-magit-section](https://github.com/e8-editor/e8-magit-section) and [e8-with-editor](https://github.com/e8-editor/e8-with-editor), which it requires, records the commits in `e8-lock.json`, and requires it. `M-x package-vc-upgrade` brings it up to date. Pin a version with `{ rev: "v0.1.0" }`. It needs E8 0.3.1 or newer, and `git` on the PATH.
+E8 installs it at its newest version tag into `repos/` beside `init.ts`, with [e8-magit-section](https://github.com/e8-editor/e8-magit-section) and [e8-with-editor](https://github.com/e8-editor/e8-with-editor), which it requires, records the commits in `e8-lock.json`, and requires it. `M-x package-vc-upgrade` brings it up to date. Pin a version with `{ rev: "v1.0.0" }`. It needs E8 0.5.0 or newer, and `git` on the PATH.
 
 ## Using it
 
@@ -87,8 +87,7 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - **Options for what E8 does not have**: Cygwin (`magit-cygwin-mount-points`, `magit-need-cygwin-noglob`), coding systems (`magit-git-output-coding-system`, `magit-process-ensure-unix-line-ending`), remote files (`magit-remote-git-executable`), git's credential cache daemon (`magit-credential-cache-daemon-socket`), gravatars (`magit-revision-show-gravatars`) and Info (`magit-view-git-manual-method`); `magit-ellipsis` always gives its fancy character, as E8 cannot tell whether one can be displayed, and `magit-branch-rename-push-target`'s `forge-only` is `local-only`, as there is no forge.
 - **The region**: E8 has no `redisplay-highlight-region-function`, so a selection of sections or lines in a hunk is drawn as E8 draws any region, and `magit-region-highlight-hook`, `magit-section-keep-region-overlay`, `magit-diff-highlight-hunk-region-functions` and `magit-diff-unmarked-lines-keep-foreground` are left out.
 - The `magit-diff` menu does not start with the diff buffer's arguments, as `magit-prefix-use-buffer-arguments` says for the log and refs menus: E8's transient would take `--stat` for the files the `--` argument limits the diff to.
-- **Applying**: E8 has no smerge-mode, so the `magit-smerge-keep-*` commands keep a side with smerge's rules ported into magit-apply.ts, and do not start smerge-mode in a buffer still conflicted; E8 has no `completing-read-multiple`, so `magit-stage-files` and `magit-unstage-files` complete one name and take several separated by commas; the wip modes, which magit-apply.el commits to, are not there yet (step 14); a nested repository among untracked files is left alone, as Magit leaves it without borg; and the stash buffer's Staged and Unstaged parts are not the `stashed-index` and `stashed-worktree` sections Magit applies whole.
-- Suffixes Magit puts above level 4 (signing, `--exec`, a rebase's strategy, some of clone's) are left out of the menus until E8's transient has levels (E8 0.5).
+- **Applying**: E8 has no smerge-mode, so the `magit-smerge-keep-*` commands keep a side with smerge's rules ported into magit-apply.ts, and do not start smerge-mode in a buffer still conflicted; E8 has no `completing-read-multiple`, so `magit-stage-files` and `magit-unstage-files` complete one name and take several separated by commas; a nested repository among untracked files is left alone, as Magit leaves it without borg; and the stash buffer's Staged and Unstaged parts are not the `stashed-index` and `stashed-worktree` sections Magit applies whole.
 - Only programs E8 starts can use E8 as their editor (see e8-with-editor).
 - The repository list does not turn on `hl-line-mode`, which E8 lacks, nor give Imenu its entries.
 - `magit-info` (`h h`, `C-x i` in the dispatch menu) cannot show Magit's Info manual, as E8 has no Info reader: it opens the manual on the web, `magit-manual-url`, with `browse-url` if E8 has it or else the system's `open` or `xdg-open`, and says where it is. `magit-version` leaves Transient out, which ships with E8.
