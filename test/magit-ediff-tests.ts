@@ -19,6 +19,24 @@ function compared(name: string): [string, string] {
   return [b.name!, e8.withCurrentBuffer(b, () => e8.bufferText())];
 }
 const exists = (name: string): boolean => e8.getBuffer(name) !== undefined;
+/** The control panel's job, as a name. */
+const job = (): string => e8.symbolName(ctl("ediff-job-name") as symbol | string);
+
+/** Runs BODY in repositories DIRS, then kills any Ediff session a failure left, so the next test starts without one. */
+function withEdiff(dirs: string[], body: () => void): void {
+  withRepos(dirs, () => {
+    try {
+      body();
+    } finally {
+      for (const b of e8.bufferList()) {
+        if (b.startsWith("*Ediff Control Panel") || b.startsWith("*ediff-") || /^\*f\.txt (UPPER|LOWER|BASE)/.test(b)) {
+          e8.withCurrentBuffer(b, () => e8.setBufferModified(false));
+          e8.call("kill-buffer", b);
+        }
+      }
+    }
+  });
+}
 
 /** A repository whose a.txt was one, then two, then three. */
 function versions(): string {
@@ -52,11 +70,11 @@ function conflicted(style = "merge"): string {
 
 ertDeftest("magit-ediff-show-working-tree-compares-head-with-the-file", () => {
   const dir = repo();
-  withRepos([dir], () => {
+  withEdiff([dir], () => {
     status(dir);
     e8.executeKbdMacro(`M-x ${typed("magit-ediff-show-working-tree")} RET ${typed("a.txt")} RET`);
     shouldEqual(e8.bufferName(), PANEL);
-    shouldEqual(String(ctl("ediff-job-name") as symbol | string), "ediff-buffers");
+    shouldEqual(job(), "ediff-buffers");
     shouldEqual(compared("ediff-buffer-A"), ["a.txt.~HEAD~", "one\ntwo\nthree\n"]);
     shouldEqual(compared("ediff-buffer-B"), ["a.txt", "one\nTWO\nthree\nfour\n"]);
     // Quitting kills the buffers Magit made for it, and Ediff's own.
@@ -67,7 +85,7 @@ ertDeftest("magit-ediff-show-working-tree-compares-head-with-the-file", () => {
 
 ertDeftest("magit-ediff-show-staged-and-unstaged-compare-the-index", () => {
   const dir = repo();
-  withRepos([dir], () => {
+  withEdiff([dir], () => {
     status(dir);
     // One file is staged, so it is not asked for.
     e8.executeKbdMacro(`M-x ${typed("magit-ediff-show-staged")} RET`);
@@ -89,7 +107,7 @@ ertDeftest("magit-ediff-show-staged-and-unstaged-compare-the-index", () => {
 
 ertDeftest("magit-ediff-quitting-puts-the-windows-back", () => {
   const dir = repo();
-  withRepos([dir], () => {
+  withEdiff([dir], () => {
     status(dir);
     const before = e8.windowList().map((w) => e8.windowBuffer(w));
     e8.executeKbdMacro(`M-x ${typed("magit-ediff-show-working-tree")} RET ${typed("a.txt")} RET`);
@@ -104,10 +122,10 @@ ertDeftest("magit-ediff-quitting-puts-the-windows-back", () => {
 
 ertDeftest("magit-ediff-stage-copies-a-change-into-the-index", () => {
   const dir = repo();
-  withRepos([dir], () => {
+  withEdiff([dir], () => {
     status(dir);
     e8.executeKbdMacro(`M-x ${typed("magit-ediff-stage")} RET ${typed("a.txt")} RET`);
-    shouldEqual(String(ctl("ediff-job-name") as symbol | string), "ediff-buffers3");
+    shouldEqual(job(), "ediff-buffers3");
     shouldEqual(compared("ediff-buffer-A"), ["a.txt.~HEAD~", "one\ntwo\nthree\n"]);
     shouldEqual(compared("ediff-buffer-B"), ["a.txt.~{index}~", "one\ntwo\nthree\n"]);
     shouldEqual(compared("ediff-buffer-C"), ["a.txt", "one\nTWO\nthree\nfour\n"]);
@@ -124,10 +142,10 @@ ertDeftest("magit-ediff-stage-copies-a-change-into-the-index", () => {
 
 ertDeftest("magit-ediff-resolve-all-merges-the-sides-into-the-file-and-stages-it", () => {
   const dir = conflicted();
-  withRepos([dir], () => {
+  withEdiff([dir], () => {
     status(dir);
     e8.executeKbdMacro(`M-x ${typed("magit-ediff-resolve-all")} RET ${typed("f.txt")} RET`);
-    shouldEqual(String(ctl("ediff-job-name") as symbol | string), "ediff-merge-buffers-with-ancestor");
+    shouldEqual(job(), "ediff-merge-buffers-with-ancestor");
     shouldEqual(compared("ediff-buffer-A"), ["f.txt.~main~", "a\nmine\nc\n"]);
     shouldEqual(compared("ediff-buffer-B"), ["f.txt.~other~", "a\ntheirs\nc\n"]);
     shouldEqual(compared("ediff-ancestor-buffer")[1], "a\nb\nc\n");
@@ -137,8 +155,9 @@ ertDeftest("magit-ediff-resolve-all-merges-the-sides-into-the-file-and-stages-it
     // Git's markers are what + combines with.
     e8.executeKbdMacro("n +");
     shouldEqual(compared("ediff-buffer-C")[1], `a\n<<<<<<< HEAD\nmine\n||||||| ${git(dir, "merge-base", "main", "other").trim()}\nb\n=======\ntheirs\n>>>>>>> other\nc\n`);
-    // Taking B's side and quitting saves the file and stages it.
-    e8.executeKbdMacro("b q y");
+    // Taking B's side, which Ediff confirms as + changed the region,
+    // and quitting saves the file and stages it.
+    e8.executeKbdMacro(`b ${typed("yes")} RET q y`);
     shouldEqual(read(dir, "f.txt"), "a\ntheirs\nc\n");
     shouldEqual(git(dir, "ls-files", "-u"), "");
     shouldEqual(git(dir, "status", "--porcelain", "--untracked-files=no"), "M  f.txt\n");
@@ -149,7 +168,7 @@ ertDeftest("magit-ediff-resolve-all-merges-the-sides-into-the-file-and-stages-it
 
 ertDeftest("magit-ediff-resolve-all-leaves-a-file-with-markers-unstaged", () => {
   const dir = conflicted();
-  withRepos([dir], () => {
+  withEdiff([dir], () => {
     status(dir);
     e8.executeKbdMacro(`M-x ${typed("magit-ediff-resolve-all")} RET ${typed("f.txt")} RET n + q y`);
     should(read(dir, "f.txt").includes("<<<<<<< HEAD\n"), read(dir, "f.txt"));
@@ -159,7 +178,7 @@ ertDeftest("magit-ediff-resolve-all-leaves-a-file-with-markers-unstaged", () => 
 
 ertDeftest("magit-ediff-resolve-rest-merges-the-conflicts-left-in-the-file", () => {
   const dir = conflicted("diff3");
-  withRepos([dir], () => {
+  withEdiff([dir], () => {
     status(dir);
     e8.executeKbdMacro(`M-x ${typed("magit-ediff-resolve-rest")} RET ${typed("f.txt")} RET`);
     // smerge-ediff's buffers: the upper, lower and base versions.
@@ -169,7 +188,7 @@ ertDeftest("magit-ediff-resolve-rest-merges-the-conflicts-left-in-the-file", () 
     shouldEqual(compared("ediff-ancestor-buffer")[1], "a\nb\nc\n");
     // Taking A's side; quitting asks to save the file, then kills
     // smerge's buffers. The file is not staged.
-    e8.executeKbdMacro("n a q y yes RET");
+    e8.executeKbdMacro(`n a q y ${typed("yes")} RET`);
     shouldEqual(read(dir, "f.txt"), "a\nmine\nc\n");
     should(git(dir, "ls-files", "-u") !== "", "f.txt is left for the user to stage");
     for (const gone of [PANEL, "*f.txt UPPER=HEAD*", "*f.txt LOWER=other*", "*ediff-merge*"]) should(!exists(gone), `${gone} is killed`);
@@ -178,7 +197,7 @@ ertDeftest("magit-ediff-resolve-rest-merges-the-conflicts-left-in-the-file", () 
 
 ertDeftest("magit-ediff-show-commit-compares-a-commit-with-its-parent", () => {
   const dir = versions();
-  withRepos([dir], () => {
+  withEdiff([dir], () => {
     status(dir);
     const head = git(dir, "rev-parse", "--short", "HEAD").trim();
     e8.executeKbdMacro(`M-x ${typed("magit-ediff-show-commit")} RET ${typed(head)} RET`);
@@ -190,7 +209,7 @@ ertDeftest("magit-ediff-show-commit-compares-a-commit-with-its-parent", () => {
 
 ertDeftest("magit-ediff-show-stash-shows-the-index-as-a-third-buffer", () => {
   const dir = repo();
-  withRepos([dir], () => {
+  withEdiff([dir], () => {
     write(dir, "a.txt", "staged\n");
     git(dir, "add", "a.txt");
     write(dir, "a.txt", "worktree\n");
@@ -199,7 +218,7 @@ ertDeftest("magit-ediff-show-stash-shows-the-index-as-a-third-buffer", () => {
     git(dir, "stash", "-q");
     status(dir);
     e8.executeKbdMacro(`M-x ${typed("magit-ediff-show-stash")} RET ${typed("stash@{0}")} RET`);
-    shouldEqual(String(ctl("ediff-job-name") as symbol | string), "ediff-buffers3");
+    shouldEqual(job(), "ediff-buffers3");
     shouldEqual(compared("ediff-buffer-A"), ["a.txt.~stash@{0}^1~", "one\ntwo\nthree\n"]);
     shouldEqual(compared("ediff-buffer-B"), ["a.txt.~stash@{0}^2~", "staged\n"]);
     shouldEqual(compared("ediff-buffer-C"), ["a.txt.~stash@{0}~", "worktree\n"]);
@@ -208,7 +227,7 @@ ertDeftest("magit-ediff-show-stash-shows-the-index-as-a-third-buffer", () => {
     e8.setVariable("magit-ediff-show-stash-with-index", false);
     try {
       e8.executeKbdMacro(`M-x ${typed("magit-ediff-show-stash")} RET ${typed("stash@{0}")} RET`);
-      shouldEqual(String(ctl("ediff-job-name") as symbol | string), "ediff-buffers");
+      shouldEqual(job(), "ediff-buffers");
       shouldEqual(compared("ediff-buffer-B"), ["a.txt.~stash@{0}~", "worktree\n"]);
       e8.executeKbdMacro("q y");
     } finally {
@@ -219,11 +238,11 @@ ertDeftest("magit-ediff-show-stash-shows-the-index-as-a-third-buffer", () => {
 
 ertDeftest("magit-ediff-dwim-stages-an-uncommitted-file-and-shows-a-commit", () => {
   const dir = repo();
-  withRepos([dir], () => {
+  withEdiff([dir], () => {
     status(dir);
     gotoText("modified   a.txt");
     e8.executeKbdMacro("e");
-    shouldEqual(String(ctl("ediff-job-name") as symbol | string), "ediff-buffers3");
+    shouldEqual(job(), "ediff-buffers3");
     shouldEqual(compared("ediff-buffer-B")[0], "a.txt.~{index}~");
     e8.executeKbdMacro("q y");
     // With magit-ediff-dwim-show-on-hunks, the unstaged changes are shown.
@@ -231,7 +250,7 @@ ertDeftest("magit-ediff-dwim-stages-an-uncommitted-file-and-shows-a-commit", () 
     try {
       gotoText("modified   a.txt");
       e8.executeKbdMacro("e");
-      shouldEqual(String(ctl("ediff-job-name") as symbol | string), "ediff-buffers");
+      shouldEqual(job(), "ediff-buffers");
       shouldEqual(compared("ediff-buffer-A")[0], "a.txt.~{index}~");
       e8.executeKbdMacro("q y");
     } finally {
@@ -244,6 +263,9 @@ ertDeftest("magit-ediff-dwim-stages-an-uncommitted-file-and-shows-a-commit", () 
     git(dir, "commit", "-q", "-m", "Second");
     e8.executeKbdMacro("g");
     const head = git(dir, "rev-parse", "--short", "HEAD").trim();
+    // The recent commits are collapsed: shown first.
+    gotoText("Recent commits");
+    e8.executeKbdMacro("TAB");
     gotoText(`${head} main Second`);
     e8.executeKbdMacro("e");
     shouldEqual(compared("ediff-buffer-A"), [`b.txt.~${head}^~`, "keep\n"]);
@@ -254,20 +276,20 @@ ertDeftest("magit-ediff-dwim-stages-an-uncommitted-file-and-shows-a-commit", () 
 
 ertDeftest("magit-ediff-dwim-resolves-a-conflicted-file", () => {
   const dir = conflicted();
-  withRepos([dir], () => {
+  withEdiff([dir], () => {
     status(dir);
     gotoText("unmerged   f.txt");
     e8.executeKbdMacro("e");
     // magit-ediff-resolve-rest, as magit-ediff-dwim-resolve-function says.
     shouldEqual(compared("ediff-buffer-A")[0], "*f.txt UPPER=HEAD*");
-    e8.executeKbdMacro("n b q y yes RET");
+    e8.executeKbdMacro(`n b q y ${typed("yes")} RET`);
     shouldEqual(read(dir, "f.txt"), "a\ntheirs\nc\n");
   });
 });
 
 ertDeftest("magit-ediff-the-e-menu-runs-its-commands", () => {
   const dir = repo();
-  withRepos([dir], () => {
+  withEdiff([dir], () => {
     status(dir);
     e8.executeKbdMacro(`E w ${typed("a.txt")} RET`);
     shouldEqual(compared("ediff-buffer-A")[0], "a.txt.~HEAD~");
