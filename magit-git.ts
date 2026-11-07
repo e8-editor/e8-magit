@@ -846,10 +846,20 @@ export function magitRemoteBranchAtPoint(): string | undefined {
   if (b !== undefined) return magitRemoteBranchP(b) ? b : undefined;
   return magitPaintedBranchAtPoint("remote");
 }
+/**
+ * What magit-blame.ts gives for the commit of the blame chunk at point,
+ * as magit-commit-at-point asks magit-current-blame-chunk while
+ * magit-blame-mode is on; magit-blame.ts sets it, as it loads after.
+ */
+export const magitBlameAtPoint: { rev?: () => string | undefined } = {};
+/** The commit of the blame chunk at point, if blaming. */
+export const magitBlameRevAtPoint = (): string | undefined => (e8.variable("magit-blame-mode") === true && magitBlameAtPoint.rev ? magitBlameAtPoint.rev() : undefined);
 /** The commit at point, as magit-commit-at-point. */
 export function magitCommitAtPoint(): string | undefined {
   const c = valueAt("commit");
   if (c !== undefined) return c;
+  const blamed = magitBlameRevAtPoint();
+  if (blamed !== undefined) return blamed;
   const revision = e8.variable("magit-buffer-revision");
   return typeof revision === "string" && ["magit-revision-mode", "magit-stash-mode"].includes(String(e8.variable("major-mode"))) ? revision : undefined;
 }
