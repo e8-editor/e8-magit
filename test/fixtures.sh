@@ -143,6 +143,23 @@ history)
     commit "$f"
   done
   ;;
+blame)
+  # file.txt written by three authors, each committing their own change:
+  # Alice adds it, Bob changes two lines, Carol changes the last and adds
+  # one, so that its chunks are Alice's, Bob's, Alice's and Carol's.
+  setup "$dir/repo"
+  as() {
+    tick
+    GIT_AUTHOR_NAME=$1 GIT_AUTHOR_EMAIL=$2 GIT_COMMITTER_NAME=$1 GIT_COMMITTER_EMAIL=$2 git commit -q -a -m "$3"
+  }
+  printf 'a1\na2\na3\na4\na5\n' > file.txt
+  git add file.txt
+  as Alice alice@example.com "Add file"
+  printf 'a1\nb2\nb3\na4\na5\n' > file.txt
+  as Bob bob@example.com "Bob edits"
+  printf 'a1\nb2\nb3\na4\nc5\nc6\n' > file.txt
+  as Carol carol@example.com "Carol edits"
+  ;;
 *)
   echo "fixtures.sh: no fixture $name" >&2
   exit 1

@@ -1,0 +1,595 @@
+{
+  "headings": [
+    {
+      "kind": "heading",
+      "line": 1,
+      "before": {
+        "text": "Alice                2026-01-01 12:01 Add file\n",
+        "faces": [
+          "0-20 magit-blame-name magit-blame-heading default",
+          "20-21 magit-blame-heading default",
+          "21-37 magit-blame-date magit-blame-heading default",
+          "37-38 magit-blame-heading default",
+          "38-46 magit-blame-summary magit-blame-heading default",
+          "46-47 magit-blame-heading default"
+        ]
+      }
+    },
+    {
+      "kind": "highlight",
+      "line": 1,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 1,
+      "margin": null
+    },
+    {
+      "kind": "heading",
+      "line": 2,
+      "before": {
+        "text": "Bob                  2026-01-01 12:02 Bob edits\n",
+        "faces": [
+          "0-20 magit-blame-name magit-blame-heading default",
+          "20-21 magit-blame-heading default",
+          "21-37 magit-blame-date magit-blame-heading default",
+          "37-38 magit-blame-heading default",
+          "38-47 magit-blame-summary magit-blame-heading default",
+          "47-48 magit-blame-heading default"
+        ]
+      }
+    },
+    {
+      "kind": "highlight",
+      "line": 2,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 2,
+      "margin": null
+    },
+    {
+      "kind": "margin",
+      "line": 3,
+      "margin": null
+    },
+    {
+      "kind": "heading",
+      "line": 4,
+      "before": {
+        "text": "Alice                2026-01-01 12:01 Add file\n",
+        "faces": [
+          "0-20 magit-blame-name magit-blame-heading default",
+          "20-21 magit-blame-heading default",
+          "21-37 magit-blame-date magit-blame-heading default",
+          "37-38 magit-blame-heading default",
+          "38-46 magit-blame-summary magit-blame-heading default",
+          "46-47 magit-blame-heading default"
+        ]
+      }
+    },
+    {
+      "kind": "highlight",
+      "line": 4,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 4,
+      "margin": null
+    },
+    {
+      "kind": "heading",
+      "line": 5,
+      "before": {
+        "text": "Carol                2026-01-01 12:03 Carol edits\n",
+        "faces": [
+          "0-20 magit-blame-name magit-blame-heading default",
+          "20-21 magit-blame-heading default",
+          "21-37 magit-blame-date magit-blame-heading default",
+          "37-38 magit-blame-heading default",
+          "38-49 magit-blame-summary magit-blame-heading default",
+          "49-50 magit-blame-heading default"
+        ]
+      }
+    },
+    {
+      "kind": "highlight",
+      "line": 5,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 5,
+      "margin": null
+    },
+    {
+      "kind": "margin",
+      "line": 6,
+      "margin": null
+    }
+  ],
+  "highlight": [
+    {
+      "kind": "heading",
+      "line": 1,
+      "before": null
+    },
+    {
+      "kind": "highlight",
+      "line": 1,
+      "face": "magit-blame-highlight"
+    },
+    {
+      "kind": "margin",
+      "line": 1,
+      "margin": null
+    },
+    {
+      "kind": "heading",
+      "line": 2,
+      "before": null
+    },
+    {
+      "kind": "highlight",
+      "line": 2,
+      "face": "magit-blame-highlight"
+    },
+    {
+      "kind": "margin",
+      "line": 2,
+      "margin": null
+    },
+    {
+      "kind": "margin",
+      "line": 3,
+      "margin": null
+    },
+    {
+      "kind": "heading",
+      "line": 4,
+      "before": null
+    },
+    {
+      "kind": "highlight",
+      "line": 4,
+      "face": "magit-blame-highlight"
+    },
+    {
+      "kind": "margin",
+      "line": 4,
+      "margin": null
+    },
+    {
+      "kind": "heading",
+      "line": 5,
+      "before": null
+    },
+    {
+      "kind": "highlight",
+      "line": 5,
+      "face": "magit-blame-highlight"
+    },
+    {
+      "kind": "margin",
+      "line": 5,
+      "margin": null
+    },
+    {
+      "kind": "margin",
+      "line": 6,
+      "margin": null
+    }
+  ],
+  "lines": [
+    {
+      "kind": "heading",
+      "line": 1,
+      "before": {
+        "text": " \n",
+        "faces": [
+          "0-2 anonymous"
+        ]
+      }
+    },
+    {
+      "kind": "highlight",
+      "line": 1,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 1,
+      "margin": null
+    },
+    {
+      "kind": "heading",
+      "line": 2,
+      "before": {
+        "text": " \n",
+        "faces": [
+          "0-2 anonymous"
+        ]
+      }
+    },
+    {
+      "kind": "highlight",
+      "line": 2,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 2,
+      "margin": null
+    },
+    {
+      "kind": "margin",
+      "line": 3,
+      "margin": null
+    },
+    {
+      "kind": "heading",
+      "line": 4,
+      "before": {
+        "text": " \n",
+        "faces": [
+          "0-2 anonymous"
+        ]
+      }
+    },
+    {
+      "kind": "highlight",
+      "line": 4,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 4,
+      "margin": null
+    },
+    {
+      "kind": "heading",
+      "line": 5,
+      "before": {
+        "text": " \n",
+        "faces": [
+          "0-2 anonymous"
+        ]
+      }
+    },
+    {
+      "kind": "highlight",
+      "line": 5,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 5,
+      "margin": null
+    },
+    {
+      "kind": "margin",
+      "line": 6,
+      "margin": null
+    }
+  ],
+  "margin": [
+    {
+      "kind": "heading",
+      "line": 1,
+      "before": null
+    },
+    {
+      "kind": "highlight",
+      "line": 1,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 1,
+      "margin": {
+        "text": " Add file                                 ",
+        "faces": [
+          "0-1 magit-blame-margin",
+          "1-9 magit-blame-summary magit-blame-margin",
+          "9-42 magit-blame-margin"
+        ]
+      }
+    },
+    {
+      "kind": "heading",
+      "line": 2,
+      "before": null
+    },
+    {
+      "kind": "highlight",
+      "line": 2,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 2,
+      "margin": {
+        "text": " Bob edits                                ",
+        "faces": [
+          "0-1 magit-blame-margin",
+          "1-10 magit-blame-summary magit-blame-margin",
+          "10-42 magit-blame-margin"
+        ]
+      }
+    },
+    {
+      "kind": "margin",
+      "line": 3,
+      "margin": {
+        "text": " 2026-01-01 12:02 Bob",
+        "faces": [
+          "0-1 magit-blame-dimmed",
+          "1-17 magit-blame-date magit-blame-dimmed",
+          "17-18 magit-blame-dimmed",
+          "18-21 magit-blame-name magit-blame-dimmed"
+        ]
+      }
+    },
+    {
+      "kind": "heading",
+      "line": 4,
+      "before": null
+    },
+    {
+      "kind": "highlight",
+      "line": 4,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 4,
+      "margin": {
+        "text": " Add file                                 ",
+        "faces": [
+          "0-1 magit-blame-margin",
+          "1-9 magit-blame-summary magit-blame-margin",
+          "9-42 magit-blame-margin"
+        ]
+      }
+    },
+    {
+      "kind": "heading",
+      "line": 5,
+      "before": null
+    },
+    {
+      "kind": "highlight",
+      "line": 5,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 5,
+      "margin": {
+        "text": " Carol edits                              ",
+        "faces": [
+          "0-1 magit-blame-margin",
+          "1-12 magit-blame-summary magit-blame-margin",
+          "12-42 magit-blame-margin"
+        ]
+      }
+    },
+    {
+      "kind": "margin",
+      "line": 6,
+      "margin": {
+        "text": " 2026-01-01 12:03 Carol",
+        "faces": [
+          "0-1 magit-blame-dimmed",
+          "1-17 magit-blame-date magit-blame-dimmed",
+          "17-18 magit-blame-dimmed",
+          "18-23 magit-blame-name magit-blame-dimmed"
+        ]
+      }
+    }
+  ],
+  "chunk-starts": [
+    2,
+    4,
+    5,
+    7
+  ],
+  "after-quit": [],
+  "removal": [
+    {
+      "kind": "heading",
+      "line": 1,
+      "before": {
+        "text": "Carol                2026-01-01 12:03 Carol edits\n",
+        "faces": [
+          "0-20 magit-blame-name magit-blame-heading default",
+          "20-21 magit-blame-heading default",
+          "21-37 magit-blame-date magit-blame-heading default",
+          "37-38 magit-blame-heading default",
+          "38-49 magit-blame-summary magit-blame-heading default",
+          "49-50 magit-blame-heading default"
+        ]
+      }
+    },
+    {
+      "kind": "highlight",
+      "line": 1,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 1,
+      "margin": null
+    },
+    {
+      "kind": "heading",
+      "line": 2,
+      "before": {
+        "text": "Bob                  2026-01-01 12:02 Bob edits\n",
+        "faces": [
+          "0-20 magit-blame-name magit-blame-heading default",
+          "20-21 magit-blame-heading default",
+          "21-37 magit-blame-date magit-blame-heading default",
+          "37-38 magit-blame-heading default",
+          "38-47 magit-blame-summary magit-blame-heading default",
+          "47-48 magit-blame-heading default"
+        ]
+      }
+    },
+    {
+      "kind": "highlight",
+      "line": 2,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 2,
+      "margin": null
+    },
+    {
+      "kind": "margin",
+      "line": 3,
+      "margin": null
+    },
+    {
+      "kind": "heading",
+      "line": 4,
+      "before": {
+        "text": "Carol                2026-01-01 12:03 Carol edits\n",
+        "faces": [
+          "0-20 magit-blame-name magit-blame-heading default",
+          "20-21 magit-blame-heading default",
+          "21-37 magit-blame-date magit-blame-heading default",
+          "37-38 magit-blame-heading default",
+          "38-49 magit-blame-summary magit-blame-heading default",
+          "49-50 magit-blame-heading default"
+        ]
+      }
+    },
+    {
+      "kind": "highlight",
+      "line": 4,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 4,
+      "margin": null
+    },
+    {
+      "kind": "margin",
+      "line": 5,
+      "margin": null
+    }
+  ],
+  "reverse": [
+    {
+      "kind": "heading",
+      "line": 1,
+      "before": {
+        "text": "Carol                2026-01-01 12:03 Carol edits\n",
+        "faces": [
+          "0-20 magit-blame-name magit-blame-heading default",
+          "20-21 magit-blame-heading default",
+          "21-37 magit-blame-date magit-blame-heading default",
+          "37-38 magit-blame-heading default",
+          "38-49 magit-blame-summary magit-blame-heading default",
+          "49-50 magit-blame-heading default"
+        ]
+      }
+    },
+    {
+      "kind": "highlight",
+      "line": 1,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 1,
+      "margin": null
+    },
+    {
+      "kind": "heading",
+      "line": 2,
+      "before": {
+        "text": "Alice                2026-01-01 12:01 Add file\n",
+        "faces": [
+          "0-20 magit-blame-name magit-blame-heading default",
+          "20-21 magit-blame-heading default",
+          "21-37 magit-blame-date magit-blame-heading default",
+          "37-38 magit-blame-heading default",
+          "38-46 magit-blame-summary magit-blame-heading default",
+          "46-47 magit-blame-heading default"
+        ]
+      }
+    },
+    {
+      "kind": "highlight",
+      "line": 2,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 2,
+      "margin": null
+    },
+    {
+      "kind": "margin",
+      "line": 3,
+      "margin": null
+    },
+    {
+      "kind": "heading",
+      "line": 4,
+      "before": {
+        "text": "Carol                2026-01-01 12:03 Carol edits\n",
+        "faces": [
+          "0-20 magit-blame-name magit-blame-heading default",
+          "20-21 magit-blame-heading default",
+          "21-37 magit-blame-date magit-blame-heading default",
+          "37-38 magit-blame-heading default",
+          "38-49 magit-blame-summary magit-blame-heading default",
+          "49-50 magit-blame-heading default"
+        ]
+      }
+    },
+    {
+      "kind": "highlight",
+      "line": 4,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 4,
+      "margin": null
+    },
+    {
+      "kind": "heading",
+      "line": 5,
+      "before": {
+        "text": "Bob                  2026-01-01 12:02 Bob edits\n",
+        "faces": [
+          "0-20 magit-blame-name magit-blame-heading default",
+          "20-21 magit-blame-heading default",
+          "21-37 magit-blame-date magit-blame-heading default",
+          "37-38 magit-blame-heading default",
+          "38-47 magit-blame-summary magit-blame-heading default",
+          "47-48 magit-blame-heading default"
+        ]
+      }
+    },
+    {
+      "kind": "highlight",
+      "line": 5,
+      "face": null
+    },
+    {
+      "kind": "margin",
+      "line": 5,
+      "margin": null
+    }
+  ]
+}

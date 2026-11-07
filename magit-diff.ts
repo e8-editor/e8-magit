@@ -48,6 +48,7 @@ import { magitCompletingRead } from "magit-base";
 import {
   magitAnythingModifiedP,
   magitBranchOrCommitAtPoint,
+  magitBlameRevAtPoint,
   magitCommitAtPoint,
   magitCommitP,
   magitCommitParents,
@@ -1406,7 +1407,11 @@ function showOrScroll(up: boolean): void {
   const s = currentSection();
   let rev: string | undefined;
   let kind: "revision" | "stash" | undefined;
-  if (s?.type === "commit" || s?.type === "module-commit") {
+  const blamed = magitBlameRevAtPoint();
+  if (blamed !== undefined) {
+    rev = blamed;
+    kind = "revision";
+  } else if (s?.type === "commit" || s?.type === "module-commit") {
     rev = String(s.value);
     kind = "revision";
   } else if (s?.type === "stash") {
