@@ -17,12 +17,15 @@ ertDeftest("magit-bisect-finds-the-first-bad-commit", () => {
     const [three, two, one] = git(dir, "log", "--format=%h").trim().split("\n");
     status(dir);
     e8.executeKbdMacro(`B B ${typed(three)} RET ${typed(one)} RET`);
-    settle(() => bisecting(dir) && git(dir, "rev-parse", "--short", "HEAD").trim() === two);
+    // Until the start's sentinel has written its output, which marking bad replaces.
+    settle(() => bisecting(dir) && git(dir, "rev-parse", "--short", "HEAD").trim() === two && e8.fileExistsP(e8.expandFileName(".git/BISECT_CMD_OUTPUT", dir)));
     should(bisecting(dir), "bisecting");
     shouldEqual(magitBisectTerms(), ["bad", "good"]);
     // Two is the only commit left to test; marking it bad names it.
     e8.executeKbdMacro("B B");
-    settle(() => e8.readTextFile(e8.expandFileName(".git/BISECT_CMD_OUTPUT", dir)).includes("is the first bad commit"));
+    // The output is written when git ends, maybe after the start's has gone.
+    const output = e8.expandFileName(".git/BISECT_CMD_OUTPUT", dir);
+    settle(() => e8.fileExistsP(output) && e8.readTextFile(output).includes("is the first bad commit"));
     should(e8.readTextFile(e8.expandFileName(".git/BISECT_CMD_OUTPUT", dir)).includes(`${two}`), "two is the first bad commit");
     e8.executeKbdMacro("B r y");
     should(!bisecting(dir), "the bisect is reset");

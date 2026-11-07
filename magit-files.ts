@@ -45,6 +45,7 @@ import {
 import { magitCallGit, magitRunGit } from "magit-process";
 import { magitGetModeBuffer, magitRefresh } from "magit-mode";
 import { magitAge } from "magit-margin";
+import { magitWipCommitAfterApply, magitWipCommitBeforeChange } from "magit-wip";
 
 e8.defineVariable({ name: "magit-find-file-hook", doc: "Hook run after visiting a blob with magit-find-file.", value: ["magit-blob-mode"] });
 e8.defineVariable({ name: "magit-find-index-hook", doc: "Hook run after visiting a file's version in the index.", value: ["magit-blob-mode"] });
@@ -209,6 +210,7 @@ export const magitUpdateIndex = e8.defineCommand({
     if (e8.variable("magit-buffer-refname") !== "{index}") e8.userError(`${file} isn't visiting the index`);
     if (e8.yOrNP(`Update index with contents of ${e8.bufferName()}?`)) {
       const index = e8.expandFileName(`magit-update-index-${Date.now()}`, magitGitdir());
+      magitWipCommitBeforeChange([file], " before un-/stage");
       try {
         e8.writeTextFile(index, e8.bufferText());
         const top = magitToplevelOrError();
@@ -221,6 +223,7 @@ export const magitUpdateIndex = e8.defineCommand({
         if (e8.fileExistsP(index)) e8.deleteFile(index);
       }
       e8.setBufferModified(false);
+      magitWipCommitAfterApply([file], " after un-/stage");
     } else e8.message("Abort");
     const status = magitGetModeBuffer("magit-status-mode");
     if (status) e8.withCurrentBuffer(status, () => magitRefresh());
@@ -349,6 +352,30 @@ export const magitBlobMode = e8.defineMinorMode({
 /** Runs BODY in the repository's top directory, as magit-with-toplevel. */
 const withToplevel = <T>(body: () => T): T => e8.letBind({ "default-directory": magitToplevelOrError() }, body);
 
+/** Stages FILES, relative to the top or absolute, all changes without, with ARG such as --force, as magit-stage-1. */
+function magitStage1(arg: string | undefined, files: string[]): void {
+  magitWipCommitBeforeChange(files, " before stage");
+  magitRunGit("add", arg, files.length > 0 ? ["--", ...files] : ".");
+  if (e8.fboundp("magit-turn-on-auto-revert-mode-if-desired") && e8.variable("magit-auto-revert-mode") === true) {
+    for (const f of files) e8.funcall("magit-turn-on-auto-revert-mode-if-desired", e8.expandFileName(f));
+  }
+  magitWipCommitAfterApply(files, " after stage");
+}
+
+/** Stages FILES, as magit-stage-files; FORCE stages ignored ones too. */
+export const magitStageFiles = (files: string[], force = false): void => withToplevel(() => magitStage1(force ? "--force" : undefined, files));
+
+/** Unstages FILES, as magit-unstage-1. */
+function magitUnstage1(files: string[]): void {
+  magitWipCommitBeforeChange(files, " before unstage");
+  if (!magitGitString("rev-parse", "--verify", "-q", "HEAD")) magitRunGit("rm", "--cached", "-q", "--", files);
+  else magitRunGit("reset", "-q", "HEAD", "--", files);
+  magitWipCommitAfterApply(files, " after unstage");
+}
+
+/** Unstages FILES, as magit-unstage-files. */
+export const magitUnstageFiles = (files: string[]): void => withToplevel(() => magitUnstage1(files));
+
 export const magitFileStage = e8.defineCommand({
   name: "magit-file-stage",
   doc: "Stage all changes to the file being visited in the current buffer.",
@@ -356,8 +383,7 @@ export const magitFileStage = e8.defineCommand({
     const file = e8.bufferFileName();
     if (!file) e8.userError("Not visiting a file");
     const force = magitFileIgnoredP(String(file)) ? (e8.yOrNP("Visited file is ignored; stage anyway?") ? "--force" : e8.userError("Abort")) : undefined;
-    const rel = magitFileRelativeName()!;
-    withToplevel(() => magitRunGit("add", force, "--", rel));
+    withToplevel(() => magitStage1(force, [magitFileRelativeName()!]));
   },
 });
 export const magitFileUnstage = e8.defineCommand({
@@ -365,8 +391,7 @@ export const magitFileUnstage = e8.defineCommand({
   doc: "Unstage all changes to the file being visited in the current buffer.",
   run: () => {
     if (!e8.bufferFileName()) e8.userError("Not visiting a file");
-    const rel = magitFileRelativeName()!;
-    withToplevel(() => (magitGitString("rev-parse", "--verify", "-q", "HEAD") ? magitRunGit("reset", "-q", "HEAD", "--", rel) : magitRunGit("rm", "--cached", "-q", "--", rel)));
+    magitUnstageFiles([magitFileRelativeName()!]);
   },
 });
 

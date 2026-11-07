@@ -57,6 +57,8 @@ export function magitWithRefreshCache<T>(body: () => T): T {
 let lastRefreshCache = { hits: 0, misses: 0 };
 /** The hits and misses of the last refresh's cache. */
 export const magitRefreshCacheStats = (): { hits: number; misses: number } => lastRefreshCache;
+/** The hits and misses of the refresh going on, or of the last one. */
+export const magitRefreshCacheCounts = (): { hits: number; misses: number } => (refreshCache ? { hits: refreshCache.hits, misses: refreshCache.misses } : lastRefreshCache);
 
 /** BODY's value, cached by KEY while a refresh cache is active, as magit--with-refresh-cache. */
 export function magitWithCache<T>(key: string, body: () => T): T {
@@ -844,10 +846,20 @@ export function magitRemoteBranchAtPoint(): string | undefined {
   if (b !== undefined) return magitRemoteBranchP(b) ? b : undefined;
   return magitPaintedBranchAtPoint("remote");
 }
+/**
+ * What magit-blame.ts gives for the commit of the blame chunk at point,
+ * as magit-commit-at-point asks magit-current-blame-chunk while
+ * magit-blame-mode is on; magit-blame.ts sets it, as it loads after.
+ */
+export const magitBlameAtPoint: { rev?: () => string | undefined } = {};
+/** The commit of the blame chunk at point, if blaming. */
+export const magitBlameRevAtPoint = (): string | undefined => (e8.variable("magit-blame-mode") === true && magitBlameAtPoint.rev ? magitBlameAtPoint.rev() : undefined);
 /** The commit at point, as magit-commit-at-point. */
 export function magitCommitAtPoint(): string | undefined {
   const c = valueAt("commit");
   if (c !== undefined) return c;
+  const blamed = magitBlameRevAtPoint();
+  if (blamed !== undefined) return blamed;
   const revision = e8.variable("magit-buffer-revision");
   return typeof revision === "string" && ["magit-revision-mode", "magit-stash-mode"].includes(String(e8.variable("major-mode"))) ? revision : undefined;
 }
