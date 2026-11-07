@@ -69,6 +69,9 @@ ertDeftest("magit-subtree-add-commit-merge-and-pull", () => {
   const lib = library();
   const dir = history();
   withRepos([lib, dir], () => {
+    // git subtree merge and pull ask an editor for the merge's message, as
+    // Magit runs them without E8 as git's editor; CI has no EDITOR.
+    git(dir, "config", "core.editor", "true");
     status(dir);
     git(dir, "fetch", "-q", lib, "main");
     const first = git(dir, "rev-parse", "FETCH_HEAD").trim();

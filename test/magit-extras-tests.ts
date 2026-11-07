@@ -150,7 +150,9 @@ ertDeftest("magit-project-status-shows-the-projects-status", () => {
     const commands = e8.variable("project-switch-commands") as string[][];
     should(commands.some((c) => c[0] === "m" && c[1] === "magit-project-status"), JSON.stringify(commands));
     e8.call("switch-to-buffer", e8.findFileNoselect(e8.expandFileName("one.txt", dir)));
-    e8.executeKbdMacro("C-x p m");
+    // project.ts remembers the project in project-list-file, whose
+    // directory CI's home has not got.
+    e8.letBind({ "project-list-file": e8.expandFileName(".e8-projects", dir) }, () => e8.executeKbdMacro("C-x p m"));
     shouldEqual(String(e8.variable("major-mode")), "magit-status-mode");
     shouldEqual(e8.bufferName(), `magit: ${e8.fileNameNondirectory(dir.replace(/\/$/, ""))}`);
   });
