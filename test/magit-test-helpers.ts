@@ -84,7 +84,7 @@ export function withRepos(dirs: string[], body: () => void): void {
   } finally {
     for (const b of e8.bufferList()) {
       if (b.startsWith(" *Minibuf")) continue;
-      const dd = e8.withCurrentBuffer(b, () => e8.variable("default-directory"));
+      const dd = e8.withCurrentBuffer(b, () => e8.bufferFileName() ?? e8.variable("default-directory"));
       if (b === "*magit-test*" || (typeof dd === "string" && dirs.some((d) => e8.fileTruename(dd).startsWith(d.replace(/\/$/, ""))))) {
         e8.withCurrentBuffer(b, () => e8.setBufferModified(false));
         e8.call("kill-buffer", b);

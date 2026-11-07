@@ -17,7 +17,7 @@ Sizes are the Lisp ported, from `wc -l` of Magit 4.4.0's `lisp/`; the port is ab
 | 8 | The sequencer: cherry-pick, revert, am, rebase in progress | 1,100 | done: magit-sequence.ts, git-rebase.ts |
 | 9 | The menus that are one command: tag, remote, clone, init, run | 1,300 | done: magit-tag.ts, magit-remote.ts, magit-clone.ts, magit-transient.ts, magit-extras.ts |
 | 10 | Gitignore, notes, patches, refs, worktrees, submodules, subtrees, bisect | 2,900 | done: one module each; the refs buffer matches 3 new oracle cases |
-| 11 | Files: file-dispatch, blobs, tracked files, file logs | 1,200 | not started |
+| 11 | Files: file-dispatch, blobs, tracked files, file logs | 1,200 | done: magit-files.ts; magit-edit-line-commit moves to step 12, as it needs blame |
 | 12 | Blame | 1,000 | not started |
 | 13 | Applying from elsewhere, conflicts, the rest of magit-apply.el | 800 | not started |
 | 14 | Extras: wip, autorevert, bookmarks, repositories, sparse checkout, info | 2,100 | not started |
