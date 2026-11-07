@@ -111,7 +111,11 @@ import { magitWorktree } from "magit-worktree";
 import { magitRemote } from "magit-remote";
 import { magitClone } from "magit-clone";
 import "magit-blame";
-import { magitGitMergetool, magitRunGitGui, magitRunGitk, magitRunGitkAll, magitRunGitkBranches } from "magit-extras";
+import { magitGitMergetool, magitPopRevisionStackCommand, magitRunGitGui, magitRunGitk, magitRunGitkAll, magitRunGitkBranches } from "magit-extras";
+import "magit-dired";
+import "magit-autorevert";
+import "magit-bookmark";
+import { magitAnyWipModeEnabledP, magitWipCommitAfterApply, magitWipCommitBeforeChange, magitWipCommitCommand } from "magit-wip";
 import { magitProcessBuffer, magitProcessBufferCommand, magitRunGit, magitRunGitWithInput, magitStartGitWith, magitStartProcess } from "magit-process";
 
 // Faces.
@@ -282,6 +286,8 @@ export const gitCommitMode = e8.defineMajorMode({
     e8.addHook("jit-lock-functions", fontifyCommit, { local: true });
   },
 });
+
+e8.defineKey("git-commit-mode-map", "C-c C-w", magitPopRevisionStackCommand);
 
 const commitArgs = (): string[] => transientArgs("magit-commit");
 
@@ -462,6 +468,7 @@ const resetCommand = (mode: string, doc: string) =>
     run: () => {
       const s = currentSection();
       const def = s?.type === "commit" ? String(s.value) : "HEAD";
+      magitWipCommitBeforeChange(undefined, " before reset");
       runGit(["reset", `--${mode}`, readBranch(`${mode[0].toUpperCase()}${mode.slice(1)} reset ${currentBranch() ?? "HEAD"} to`, [...localBranches(), ...remoteBranches()], def)]);
     },
   });
@@ -1025,6 +1032,7 @@ const logMenu = transientDefinePrefix("magit-log", {
             ["H", "HEAD", "magit-reflog-head"],
           ],
         },
+        { description: "Wiplog", if: magitAnyWipModeEnabledP, items: [["i", "index", "magit-wip-log-index"], ["w", "worktree", "magit-wip-log-worktree"]] },
         { description: "Other", items: [["s", "shortlog", shortlog]] },
       ],
     },
@@ -1195,15 +1203,7 @@ const snapshot = (name: string, doc: string, extra: string[]) =>
       runGit(["stash", "store", "-m", `Snapshot of ${branchOrHead()}`, hash]);
     },
   });
-const stashToWip = e8.defineCommand({
-  name: "magit-wip-commit",
-  doc: "Commit the working tree's changes to a work-in-progress ref, refs/wip/wtree/refs/heads/BRANCH.",
-  run: () => {
-    const hash = gitOutput(["stash", "create"]).output.trim();
-    if (hash === "") e8.userError("No local changes to save");
-    runGit(["update-ref", `refs/wip/wtree/refs/heads/${branchOrHead()}`, hash]);
-  },
-});
+const stashToWip = magitWipCommitCommand;
 const stashList = "magit-stash-list";
 const stashBranch = e8.defineCommand({
   name: "magit-stash-branch",
