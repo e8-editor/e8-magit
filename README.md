@@ -2,7 +2,7 @@
 
 Git in a status buffer of sections, for [E8](https://github.com/e8-editor/e8): `C-x g` shows the repository, and single keys stage, unstage, discard, commit, branch, push, pull, rebase and stash, with Magit's menus. A port of [Magit](https://github.com/magit/magit) 4.4.0.
 
-**This is a subset of Magit.** The status buffer, staging, committing, branching, pushing and pulling, the log, diffs, stashing and interactive rebasing work, and every menu shows what Magit's does; but blame and ediff are not there, and many of the log's and diff's options do nothing yet. [What works](#what-works) and [what is missing](#what-is-missing) below say which, and [docs/plan.md](docs/plan.md) is the plan for porting the rest, step by step. Its versions start at v0.1.0.
+**This is a subset of Magit.** The status buffer, staging, committing, branching, pushing and pulling, the log, diffs, stashing and interactive rebasing work, and every menu shows what Magit's does; but ediff is not there, and many of the log's and diff's options do nothing yet. [What works](#what-works) and [what is missing](#what-is-missing) below say which, and [docs/plan.md](docs/plan.md) is the plan for porting the rest, step by step. Its versions start at v0.1.0.
 
 ## Installing
 
@@ -63,13 +63,15 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - **Ignoring** (`i`): at the top, in a subdirectory, privately or for all repositories; skip-worktree and assume-unchanged. **Notes** (`T`): edit, remove, merge and prune, and the notes refs. **Patches** (`W`): create with git format-patch and its options, apply, save a diff. **Bisect** (`B`): start, good, bad, mark, skip, run a script, reset, with the bisect sections in the status buffer.
 - **Worktrees** (`Z`): check out, branch, move, delete, visit, and their sections. **Submodules** (`o`): add, register, populate, update, synchronize, unpopulate, remove, list, and the module sections. **Subtrees** (`O`): import (add, merge, pull) and export (push, split).
 - **Files** (`C-c M-g` in a file's buffer): stage, unstage, untrack, rename, delete and check out the file, diff, log and trace it, and visit it at a revision (`magit-find-file`), in the index, or step through its revisions with `n` and `p` in `magit-blob-mode`; `magit-update-index` writes the index's version back; `K` and `R` untrack and rename in Magit buffers.
+- **Blame** (`C-c M-g b`, `B` for the menu, `r` and `f` in a blob for removals and in reverse, `m` to echo): each chunk of lines as overlays, a heading with its author, date and summary, a highlighted first line or a thin line, or the left margin, as `magit-blame-styles` says (`c` cycles them); `n`, `p`, `N` and `P` move between chunks, `b` blames the revision before the chunk's, `RET` and `SPC` show its commit, `M-w` copies its hash and `q` quits. `magit-edit-line-commit` (`C-c M-g e`) and `magit-diff-edit-hunk-commit` (`C-c C-e` on a hunk) edit the commit that added the line.
 - From the dispatch menu, cherries, one command.
 
 ## What is missing
 
-- **Not there at all**: blame; ediff; applying or reversing a change from elsewhere (`a`, `v`). Their keys in the menus say so.
+- **Not there at all**: ediff; applying or reversing a change from elsewhere (`a`, `v`). Their keys in the menus say so.
 - Suffixes Magit puts above level 4 (signing, `--exec`, a rebase's strategy, some of clone's) are left out of the menus until E8's transient has levels (E8 0.5).
 - Only programs E8 starts can use E8 as their editor (see e8-with-editor).
+- Blame: the `-M` and `-C` arguments cannot be given without a number, as transient's `:allow-empty`; the lines style's separator is as tall as E8 draws a `(space :height (2))`; the quickstart blames the lines shown first only once a window has drawn them; `magit-blame-put-keymap-before-view-mode` is left out, as E8 has no view-mode; and read-only-mode, which has no hook in E8, is advised to toggle blame's keys.
 
 ## Credit
 
