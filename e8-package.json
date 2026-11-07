@@ -3,7 +3,7 @@
   "description": "Git in a status buffer of sections, with Magit's menus: a subset of Magit",
   "e8": "0.3.1",
   "requires": {
-    "magit-section": "e8-editor/e8-magit-section@0.1.0",
+    "magit-section": "e8-editor/e8-magit-section@0.2.0",
     "with-editor": "e8-editor/e8-with-editor@0.1.0"
   }
 }
