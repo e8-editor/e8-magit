@@ -1,0 +1,14 @@
+{
+  "buffer": "magit-log: repo",
+  "point": 1,
+  "text": "e6b47a8 * main Local commit\n919904d * feature Add b\n83cb578 * Second commit\n408580f * v0.1 First commit\n",
+  "faces": [
+    "1:0-7 magit-hash",
+    "1:10-14 magit-branch-current",
+    "2:0-7 magit-hash",
+    "2:10-17 magit-branch-local",
+    "3:0-7 magit-hash",
+    "4:0-7 magit-hash",
+    "4:10-14 magit-tag"
+  ]
+}

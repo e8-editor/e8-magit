@@ -1,0 +1,23 @@
+{
+  "buffer": "magit: repo",
+  "point": 3,
+  "text": "Head:     main Rename, delete and change a binary\n\nUnstaged changes (2)\nmodified   bin.dat (binary)\ndeleted    new.txt\n@@ -1,4 +0,0 @@\n-alpha\n-beta\n-gamma\n-delta\n\nStaged changes (1)\nrenamed    keep.txt -> kept.txt\n\nRecent commits\n",
+  "faces": [
+    "1:10-14 magit-branch-local",
+    "3:0-16 magit-section-heading",
+    "3:16-18 magit-section-child-count",
+    "3:19-20 magit-section-child-count",
+    "4:0-18 magit-diff-file-heading",
+    "5:0-18 magit-diff-file-heading",
+    "6:0-15 magit-diff-hunk-heading",
+    "7:0-6 magit-diff-removed-highlight",
+    "8:0-5 magit-diff-removed-highlight",
+    "9:0-6 magit-diff-removed-highlight",
+    "10:0-6 magit-diff-removed-highlight",
+    "12:0-14 magit-section-heading",
+    "12:14-16 magit-section-child-count",
+    "12:17-18 magit-section-child-count",
+    "13:0-31 magit-diff-file-heading",
+    "15:0-14 magit-section-heading"
+  ]
+}

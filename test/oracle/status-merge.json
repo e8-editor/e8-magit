@@ -1,0 +1,22 @@
+{
+  "buffer": "magit: repo",
+  "point": 3,
+  "text": "Head:     main Main change\n\nMerging topic (1)\n113661c topic Topic change\n\nUnstaged changes (1)\nunmerged   a.txt\n\nStaged changes (2)\nunmerged   a.txt\nmodified   b.txt\n\nRecent commits\n",
+  "faces": [
+    "1:10-14 magit-branch-local",
+    "3:0-13 magit-section-heading",
+    "3:13-17 magit-section-child-count",
+    "4:0-7 magit-hash",
+    "4:8-13 magit-branch-local",
+    "6:0-16 magit-section-heading",
+    "6:16-18 magit-section-child-count",
+    "6:19-20 magit-section-child-count",
+    "7:0-16 magit-diff-file-heading",
+    "9:0-14 magit-section-heading",
+    "9:14-16 magit-section-child-count",
+    "9:17-18 magit-section-child-count",
+    "10:0-16 magit-diff-file-heading",
+    "11:0-16 magit-diff-file-heading",
+    "13:0-14 magit-section-heading"
+  ]
+}

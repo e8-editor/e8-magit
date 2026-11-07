@@ -1,0 +1,19 @@
+{
+  "buffer": "magit-log: repo",
+  "point": 1,
+  "text": "d4d1658 *   refs/stash On main: second stash\n        |\\  \n6e2f5a6 | * index on main: e6b47a8 Local commit\n        |/  \ne6b47a8 * main Local commit\nfb8b8df | * origin/main Remote commit\n        |/  \n919904d * feature Add b\n83cb578 * Second commit\n408580f * v0.1 First commit\n",
+  "faces": [
+    "1:0-7 magit-hash",
+    "1:12-22 magit-refname-stash",
+    "3:0-7 magit-hash",
+    "5:0-7 magit-hash",
+    "5:10-14 magit-branch-current",
+    "6:0-7 magit-hash",
+    "6:12-23 magit-branch-upstream magit-branch-remote",
+    "8:0-7 magit-hash",
+    "8:10-17 magit-branch-local",
+    "9:0-7 magit-hash",
+    "10:0-7 magit-hash",
+    "10:10-14 magit-tag"
+  ]
+}

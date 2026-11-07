@@ -1,0 +1,25 @@
+{
+  "buffer": "magit: repo",
+  "point": 5,
+  "text": "Head:     main First commit\n\nUntracked files (1)\nUnstaged changes (1)\nmodified   a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+TWO\n three\n+four\n\nStaged changes (1)\nmodified   b.txt\n\nRecent commits\n",
+  "faces": [
+    "1:10-14 magit-branch-local",
+    "3:0-15 magit-section-heading",
+    "3:15-19 magit-section-child-count",
+    "4:0-16 magit-section-heading",
+    "4:16-18 magit-section-child-count",
+    "4:19-20 magit-section-child-count",
+    "5:0-16 magit-diff-file-heading",
+    "6:0-15 magit-diff-hunk-heading",
+    "7:0-4 magit-diff-context-highlight",
+    "8:0-4 magit-diff-removed-highlight",
+    "9:0-4 magit-diff-added-highlight",
+    "10:0-6 magit-diff-context-highlight",
+    "11:0-5 magit-diff-added-highlight",
+    "13:0-14 magit-section-heading",
+    "13:14-16 magit-section-child-count",
+    "13:17-18 magit-section-child-count",
+    "14:0-16 magit-diff-file-heading",
+    "16:0-14 magit-section-heading"
+  ]
+}

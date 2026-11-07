@@ -1,0 +1,9 @@
+{
+  "buffer": "magit: repo",
+  "point": 3,
+  "text": "Head:     main Three\n\nRecent commits\n",
+  "faces": [
+    "1:10-14 magit-branch-local",
+    "3:0-14 magit-section-heading"
+  ]
+}

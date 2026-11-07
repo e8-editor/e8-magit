@@ -1,0 +1,12 @@
+{
+  "buffer": "magit-diff: repo",
+  "point": 1,
+  "text": "1 file changed, 0 insertions(+), 0 deletions(-)\nkeep.txt => kept.txt | 0 \n\nrenamed    keep.txt -> kept.txt\nrename from keep.txt\nrename to kept.txt\n\n",
+  "faces": [
+    "1:0-47 magit-diff-file-heading",
+    "2:0-20 magit-filename",
+    "4:0-31 magit-diff-file-heading",
+    "5:0-20 default",
+    "6:0-18 magit-diff-context"
+  ]
+}

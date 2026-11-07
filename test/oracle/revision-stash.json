@@ -1,0 +1,12 @@
+{
+  "buffer": "magit-stash: repo",
+  "point": 1,
+  "text": "Unstaged\nmodified   b.txt\n@@ -1 +1,2 @@\n b\n+stash two\n\n",
+  "faces": [
+    "1:0-8 magit-section-heading",
+    "2:0-16 magit-diff-file-heading",
+    "3:0-13 magit-diff-hunk-heading",
+    "4:0-2 magit-diff-context-highlight",
+    "5:0-10 magit-diff-added-highlight"
+  ]
+}

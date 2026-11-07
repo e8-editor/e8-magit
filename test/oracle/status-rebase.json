@@ -1,0 +1,24 @@
+{
+  "buffer": "magit: repo",
+  "point": 3,
+  "text": "Head:     617e343 Main change\n\nRebasing topic onto main\npick 8d963c0 Topic file\njoin ddcc53b Topic change\nonto 617e343 Main change\n\nUnstaged changes (1)\nunmerged   a.txt\n\nStaged changes (1)\nunmerged   a.txt\n\nRecent commits\n",
+  "faces": [
+    "1:10-17 magit-hash",
+    "3:0-24 magit-section-heading",
+    "4:0-4 magit-sequence-pick",
+    "4:5-12 magit-hash",
+    "5:0-4 magit-sequence-part",
+    "5:5-12 magit-hash",
+    "6:0-4 magit-sequence-head",
+    "6:5-12 magit-hash",
+    "8:0-16 magit-section-heading",
+    "8:16-18 magit-section-child-count",
+    "8:19-20 magit-section-child-count",
+    "9:0-16 magit-diff-file-heading",
+    "11:0-14 magit-section-heading",
+    "11:14-16 magit-section-child-count",
+    "11:17-18 magit-section-child-count",
+    "12:0-16 magit-diff-file-heading",
+    "14:0-14 magit-section-heading"
+  ]
+}

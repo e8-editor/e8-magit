@@ -1,0 +1,13 @@
+{
+  "buffer": "magit-reflog: repo",
+  "point": 1,
+  "text": "77d9ece 0  commit           Three\n2b5c151 1  commit           Two\n18f4486 2  initial          One\n",
+  "faces": [
+    "1:0-7 magit-hash",
+    "1:11-27 magit-reflog-commit",
+    "2:0-7 magit-hash",
+    "2:11-27 magit-reflog-commit",
+    "3:0-7 magit-hash",
+    "3:11-27 magit-reflog-commit"
+  ]
+}

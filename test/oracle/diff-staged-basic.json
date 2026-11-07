@@ -1,0 +1,14 @@
+{
+  "buffer": "magit-diff: repo",
+  "point": 1,
+  "text": "1 file changed, 1 insertion(+)\nb.txt | 1 +\n\nmodified   b.txt\n@@ -1 +1,2 @@\n keep\n+more\n\n",
+  "faces": [
+    "1:0-30 magit-diff-file-heading",
+    "2:0-5 magit-filename",
+    "2:10-11 magit-diffstat-added",
+    "4:0-16 magit-diff-file-heading",
+    "5:0-13 magit-diff-hunk-heading",
+    "6:0-5 magit-diff-context",
+    "7:0-5 magit-diff-added"
+  ]
+}
