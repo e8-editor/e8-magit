@@ -2,7 +2,7 @@
 
 Git in a status buffer of sections, for [E8](https://github.com/e8-editor/e8): `C-x g` shows the repository, and single keys stage, unstage, discard, commit, branch, push, pull, rebase and stash, with Magit's menus. A port of [Magit](https://github.com/magit/magit) 4.4.0.
 
-**This is a subset of Magit.** The status buffer, staging, committing, branching, pushing and pulling, the log, diffs, stashing and interactive rebasing work, and every menu shows what Magit's does; but blame, bisect, worktrees, submodules, subtrees, notes, ediff and applying patches are not there, and many of the log's and diff's options do nothing yet. [What works](#what-works) and [what is missing](#what-is-missing) below say which. Its versions start at v0.1.0.
+**This is a subset of Magit.** The status buffer, staging, committing, branching, pushing and pulling, the log, diffs, stashing and interactive rebasing work, and every menu shows what Magit's does; but blame, bisect, worktrees, submodules, subtrees, notes, ediff and applying patches are not there, and many of the log's and diff's options do nothing yet. [What works](#what-works) and [what is missing](#what-is-missing) below say which, and [docs/plan.md](docs/plan.md) is the plan for porting the rest, step by step. Its versions start at v0.1.0.
 
 ## Installing
 
