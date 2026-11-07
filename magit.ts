@@ -90,6 +90,7 @@ import { magitGitignore } from "magit-gitignore";
 import { magitNotes } from "magit-notes";
 import { magitSubtree } from "magit-subtree";
 import "magit-repos";
+import "magit-sparse-checkout";
 import { magitSubmodule } from "magit-submodule";
 import { magitPatch } from "magit-patch";
 import { magitWorktree } from "magit-worktree";

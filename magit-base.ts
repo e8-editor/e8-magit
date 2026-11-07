@@ -66,6 +66,26 @@ export function magitCompletingRead(prompt: string, collection: Iterable<string>
   return reply;
 }
 
+/**
+ * Reads several of TABLE, separated by commas, as
+ * magit-completing-read-multiple: each part after the last comma
+ * completes against TABLE, which keeps its order. Gives the parts, or
+ * with NO-SPLIT the input as it was typed.
+ */
+export function magitCompletingReadMultiple(prompt: string, table: Iterable<string>, options: { initialInput?: string; history?: string; def?: string; noSplit?: boolean } = {}): string[] {
+  const choices = Array.from(table);
+  if (options.def !== undefined && !choices.includes(options.def)) choices.unshift(options.def);
+  const separator = /[ \t]*,[ \t]*/;
+  // Completes the last part, keeping those before it, as completing-read-multiple's table does.
+  const complete = (input: string): string[] => {
+    const before = /^(.*,[ \t]*)/s.exec(input)?.[1] ?? "";
+    return choices.map((c) => before + c);
+  };
+  const reply = e8.completingRead(prompt, complete, { initial: options.initialInput, history: options.history, default: options.def });
+  if (options.noSplit) return [reply];
+  return reply.split(separator).filter((part) => part !== "");
+}
+
 /** Reads a string, trimmed, as magit-read-string: empty input is the default, or an error without one. */
 export function magitReadString(prompt: string, initialInput?: string, history?: string, def?: string, noWhitespace = false): string {
   let reply = e8.readString(magitFormatPrompt(prompt, def), { initial: initialInput, history, default: def }).trim();
