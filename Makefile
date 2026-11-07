@@ -13,7 +13,7 @@ TESTS := $(filter-out $(PROCESS_TESTS),$(wildcard test/*-tests.ts))
 # e8-magit-section's sections-complete branch until it is tagged v0.2.0.
 DEPS := e8-editor/e8-magit-section@sections-complete e8-editor/e8-with-editor@v0.1.0
 DEP_DIRS := $(foreach d,$(DEPS),.e8/deps/$(notdir $(firstword $(subst @, ,$(d)))))
-.PHONY: test types deps oracle
+.PHONY: test types deps oracle parity
 
 test: deps
 	$(E8) --batch -L . -L test $(foreach d,$(DEP_DIRS),-L $(d)) $(foreach t,$(TESTS),-l $(t)) -f ert-run-tests-batch-and-exit
@@ -22,6 +22,9 @@ test: deps
 types: deps
 	$(E8) --print-types .e8
 	tsc -p .
+
+parity:
+	emacs -Q --batch -l test/record-parity.el
 
 oracle:
 	emacs -Q --batch -l test/record.el
