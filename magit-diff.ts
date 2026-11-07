@@ -29,7 +29,9 @@ import {
   insertSection,
   magitCancelSection,
   magitGetSection,
+  magitRegionSections,
   magitRegionValues,
+  magitSectionInternalRegionP,
   magitSectionDefineType,
   magitSectionMatch,
   magitSectionParentValue,
@@ -1039,27 +1041,127 @@ export function magitDiffType(section = currentSection()): string | undefined {
   return "undefined";
 }
 
+/**
+ * The scope of SECTION, or of the sections the region selects or the
+ * current one: region, hunk, hunks, file, files or list, as
+ * magit-diff-scope. With STRICT, none for untracked files or a diffstat.
+ */
+export function magitDiffScope(section?: Section, strict = false): string | undefined {
+  const ssection = section !== undefined;
+  const siblings = ssection ? undefined : magitRegionSections(undefined, true);
+  const s = section ?? siblings?.[0] ?? currentSection();
+  if (!s) return undefined;
+  if (strict && (magitDiffType(s) === "untracked" || s.parent?.type === "diffstat")) return undefined;
+  const sib = siblings !== undefined;
+  const useRegion = magitDiffUseHunkRegionP();
+  switch (s.type) {
+    case "hunk":
+      if (!sib && useRegion) return magitSectionInternalRegionP(s) ? "region" : "hunk";
+      return sib && useRegion && !ssection ? "hunks" : "hunk";
+    case "file":
+    case "module":
+      return sib && useRegion && !ssection ? "files" : "file";
+    case "staged":
+    case "unstaged":
+    case "untracked":
+      return sib ? undefined : "list";
+  }
+  return undefined;
+}
+
+/** Whether the region selects lines or sections, as magit-diff-use-hunk-region-p. */
+export const magitDiffUseHunkRegionP = (): boolean => e8.regionActive() && e8.mark() !== undefined;
+
+const bufferDiffArgs = (): string[] => {
+  const args = e8.variable("magit-buffer-diff-args");
+  return Array.isArray(args) ? (args as string[]) : [];
+};
+
+/** The lines of context the diff has, as magit-diff-get-context. */
+export function magitDiffGetContext(): number {
+  const arg = bufferDiffArgs().map((a) => /^-U([0-9]+)?$/.exec(a)?.[1]).find((n) => n !== undefined);
+  return Number(arg ?? magitGet("diff.context") ?? "3");
+}
+
+/** Whether the diff has context to apply its hunks with, as magit-diff-context-p. */
+export function magitDiffContextP(): boolean {
+  const arg = bufferDiffArgs().find((a) => /^-U([0-9]+)$/.test(a));
+  return arg === undefined || arg !== "-U0";
+}
+
+/** Whether the diff ignores any whitespace, as magit-diff-ignore-any-space-p. */
+export const magitDiffIgnoreAnySpaceP = (): boolean =>
+  ["--ignore-cr-at-eol", "--ignore-space-at-eol", "--ignore-space-change", "-b", "--ignore-all-space", "-w", "--ignore-blank-space"].some((a) => bufferDiffArgs().includes(a));
+
+/** Whether the file section's diff is a combined one, as magit-diff--combined-p. */
+export const magitDiffCombinedP = (section: Section): boolean => /^diff --(combined|cc)/.test((section.value as FileValue | undefined)?.diff?.header[0] ?? "");
+
+/**
+ * The header of the file of SECTION, a file or a hunk, as git apply
+ * takes it, as magit-diff-file-header; with NO-RENAME, its "---" line
+ * names the file as it is now.
+ */
+export function magitDiffFileHeader(section: Section, noRename = false): string | undefined {
+  const file = section.type === "hunk" ? section.parent : section;
+  const v = file?.value as FileValue | undefined;
+  if (!file || file.type !== "file" || !v?.diff) return undefined;
+  const header = v.diff.header.map((l) => `${l}\n`).join("");
+  return noRename ? header.replace(/^--- (.+)/m, `--- ${v.file}`) : header;
+}
+
+/**
+ * The patch for the lines of the hunk SECTION the region selects, as
+ * magit-diff-hunk-region-patch: the other lines changed are dropped or
+ * kept as context, by whether ARGS reverse it, and the counts made again
+ * as diff-fixup-modifs makes them.
+ */
+export function magitDiffHunkRegionPatch(section: Section, args: string[] = []): string {
+  const op = args.includes("--reverse") ? "+" : "-";
+  const rbeg = e8.lineBeginningPosition(Math.min(e8.mark()!, e8.point()));
+  const rend = Math.max(e8.mark()!, e8.point());
+  const patch: string[] = [];
+  for (let p = section.start; p < section.end; p = e8.lineEndPosition(p) + 1) {
+    const line = e8.bufferSubstringNoProperties(p, e8.lineEndPosition(p));
+    const c = line.charAt(0);
+    if (c === "@" || c === " " || (p >= rbeg && p <= rend)) patch.push(line);
+    else if (c === op) patch.push(` ${line.slice(1)}`);
+  }
+  return diffFixupModifs(patch).map((l) => `${l}\n`).join("");
+}
+
+/** LINES, a hunk, with the counts of its heading made again, as diff-fixup-modifs. */
+function diffFixupModifs(lines: string[]): string[] {
+  const m = /^@@ -([0-9]+)(?:,[0-9]+)? \+([0-9]+)(?:,[0-9]+)? @@(.*)$/.exec(lines[0] ?? "");
+  if (!m) return lines;
+  const body = lines.slice(1);
+  const old = body.filter((l) => l.startsWith(" ") || l.startsWith("-")).length;
+  const now = body.filter((l) => l.startsWith(" ") || l.startsWith("+")).length;
+  return [`@@ -${m[1]},${old} +${m[2]},${now} @@${m[3]}`, ...body];
+}
+
 // Visiting.
 
-/** The line of the file a position in a hunk shows, as magit-diff-hunk-line. */
-export function magitDiffHunkLine(section: Section, goner = false): number {
+/**
+ * The line of the file the line of point in a hunk shows, on the side
+ * removed from with GOTO-FROM, as magit-diff-hunk-line: on the heading,
+ * the hunk's first changed line's.
+ */
+export function magitDiffHunkLine(section: Section, gotoFrom = false): number {
   const v = section.value as FileValue;
   const hunk = v.hunk;
   if (!hunk) return 1;
-  const pos = e8.point();
-  const removedSide = goner;
-  const range = removedSide ? (hunk.combined ? (hunk.fromRange as number[][])[0] : (hunk.fromRange as number[])) : hunk.toRange;
-  let line = range[0];
-  let p = section.content;
-  const skip = removedSide ? "+" : "-";
-  while (p < pos && p < section.end) {
-    const eol = e8.lineEnd(e8.lineOf(p));
-    if (eol >= pos) break;
-    const c = e8.charAfter(p);
-    if (c !== skip && !(c === "\\")) line++;
-    p = eol + 1;
+  let target = e8.lineBeginningPosition(e8.point());
+  if (target < section.content) {
+    target = section.content;
+    while (target < section.end && !/^[-+]/.test(e8.bufferSubstringNoProperties(target, Math.min(target + 1, section.end)))) target = e8.lineEndPosition(target) + 1;
   }
-  return line;
+  const prefix = hunk.combined ? (hunk.fromRange as number[][]).length : 1;
+  const range = gotoFrom ? (hunk.combined ? (hunk.fromRange as number[][])[0] : (hunk.fromRange as number[])) : hunk.toRange;
+  let offset = 0;
+  for (let p = section.content; p < target && p < section.end; p = e8.lineEndPosition(p) + 1) {
+    if (!e8.bufferSubstringNoProperties(p, Math.min(p + prefix, section.end)).includes(gotoFrom ? "+" : "-")) offset++;
+  }
+  return range[0] + offset;
 }
 
 /** The column of point in the file, the diff marker left out, as magit-diff-hunk-column. */
@@ -1521,8 +1623,25 @@ for (const [key, command] of [
 ] as const)
   e8.defineKey("magit-diff-section-map", key, command as e8.CommandName);
 e8.remapCommand("magit-diff-section-map", "magit-visit-thing" as e8.CommandName, "magit-diff-visit-file" as e8.CommandName);
+for (const [from, to] of [
+  ["magit-revert-no-commit", "magit-reverse"],
+  ["magit-delete-thing", "magit-discard"],
+  ["magit-unstage-files", "magit-unstage"],
+  ["magit-stage-files", "magit-stage"],
+  ["magit-cherry-apply", "magit-apply"],
+] as const)
+  e8.remapCommand("magit-diff-section-map", from as e8.CommandName, to as e8.CommandName);
 e8.defineKeymap("magit-file-section-map", "magit-diff-section-map");
 e8.defineKeymap("magit-hunk-section-map", "magit-diff-section-map");
+/** The keys of smerge-command-prefix in a hunk, as magit-hunk-section-smerge-map. */
+for (const [key, command] of [
+  ["RET", "magit-smerge-keep-current"],
+  ["a", "magit-smerge-keep-all"],
+  ["u", "magit-smerge-keep-upper"],
+  ["b", "magit-smerge-keep-base"],
+  ["l", "magit-smerge-keep-lower"],
+] as const)
+  e8.defineKey("magit-hunk-section-map", `C-c ^ ${key}`, command as e8.CommandName);
 e8.defineKeymap("magit-commit-message-section-map", null);
 e8.remapCommand("magit-commit-message-section-map", "magit-visit-thing" as e8.CommandName, "magit-show-commit" as e8.CommandName);
 magitSectionDefineType("commit-message", { keymap: "magit-commit-message-section-map" });

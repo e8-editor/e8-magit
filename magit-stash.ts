@@ -63,3 +63,18 @@ export function magitStashesSetupBuffer(ref = "refs/stash"): string {
   }, true, { "magit-buffer-refname": ref });
 }
 e8.defineCommand({ name: "magit-stash-list", doc: "List all stashes in a buffer.", run: () => void magitStashesSetupBuffer() });
+
+// Keys.
+
+import { magitSectionDefineType } from "magit-section";
+
+/** The keys of a stash's section, as magit-stash-section-map. */
+e8.defineKeymap("magit-stash-section-map", null);
+for (const [from, to] of [
+  ["magit-cherry-pick", "magit-stash-pop"],
+  ["magit-cherry-apply", "magit-stash-apply"],
+  ["magit-delete-thing", "magit-stash-drop"],
+  ["magit-visit-thing", "magit-stash-show"],
+] as const)
+  e8.remapCommand("magit-stash-section-map", from as e8.CommandName, to as e8.CommandName);
+magitSectionDefineType("stash", { keymap: "magit-stash-section-map" });

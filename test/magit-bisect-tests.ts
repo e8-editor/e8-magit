@@ -17,7 +17,8 @@ ertDeftest("magit-bisect-finds-the-first-bad-commit", () => {
     const [three, two, one] = git(dir, "log", "--format=%h").trim().split("\n");
     status(dir);
     e8.executeKbdMacro(`B B ${typed(three)} RET ${typed(one)} RET`);
-    settle(() => bisecting(dir) && git(dir, "rev-parse", "--short", "HEAD").trim() === two);
+    // Until the start's sentinel has written its output, which marking bad replaces.
+    settle(() => bisecting(dir) && git(dir, "rev-parse", "--short", "HEAD").trim() === two && e8.fileExistsP(e8.expandFileName(".git/BISECT_CMD_OUTPUT", dir)));
     should(bisecting(dir), "bisecting");
     shouldEqual(magitBisectTerms(), ["bad", "good"]);
     // Two is the only commit left to test; marking it bad names it.

@@ -2,7 +2,7 @@
 //
 // Magit, after Magit 4.4.0 (https://github.com/magit/magit): magit.el and
 // the files of its lisp/ directory it draws on, among them magit-status.el,
-// magit-diff.el, magit-apply.el, magit-log.el, magit-commit.el,
+// magit-diff.el, magit-log.el, magit-commit.el,
 // git-commit.el, magit-branch.el, magit-push.el, magit-pull.el,
 // magit-fetch.el, magit-merge.el, magit-reset.el, magit-stash.el,
 // magit-sequence.el, git-rebase.el and magit-process.el. Git in a status
@@ -66,6 +66,7 @@ import {
   magitRevisionMode,
   magitSetupBuffer,
   magitStatusMode,
+  magitDeleteThing,
 } from "magit-mode";
 import {
   magitDiffArguments,
@@ -79,6 +80,17 @@ import {
   type FileValue,
 } from "magit-diff";
 import { magitInitCommand, magitStatus } from "magit-status";
+import {
+  magitApplyCommand,
+  magitDiscardCommand,
+  magitReverseCommand,
+  magitStageCommand,
+  magitStageFilesCommand,
+  magitStageModifiedCommand,
+  magitUnstageAllCommand,
+  magitUnstageCommand,
+  magitUnstageFilesCommand,
+} from "magit-apply";
 import "magit-log";
 import "git-rebase";
 import { magitAm, magitCherryApply, magitCherryPick, magitRebase, magitRevert, magitRevertNoCommit } from "magit-sequence";
@@ -158,139 +170,7 @@ const repoName = magitRepoName;
 
 const face = (text: string, f: string): e8.PropertizedString => e8.propertize(text, { face: f });
 
-// Applying: staging, unstaging and discarding.
-
-/** The file or hunk at point, or the files of the section at point, as magit-apply's targets. */
-function targets(): { section: Section; values: FileValue[] } | undefined {
-  const s = currentSection();
-  if (!s) return undefined;
-  // An untracked file's section has its name as its value, as Magit's has.
-  const asValue = (x: Section): FileValue => (typeof x.value === "string" ? { file: x.value, kind: "untracked" } : (x.value as FileValue));
-  if (s.type === "file" || s.type === "hunk") return { section: s, values: [asValue(s)] };
-  // The untracked list's files are inserted only when it is shown: ask git for them.
-  if (s.type === "untracked") return { section: s, values: magitUntrackedFiles().map((file) => ({ file, kind: "untracked" as const })) };
-  if (s.type === "unstaged" || s.type === "staged") return { section: s, values: s.children.map(asValue) };
-  return { section: s, values: [] };
-}
-
-/** The patch for a hunk, with its file's header, for git apply. */
-function hunkPatch(v: FileValue): string {
-  const header = v.diff!.header.filter((l) => /^(diff --git|--- |\+\+\+ |new file mode|deleted file mode|old mode|new mode|index )/.test(l));
-  return [...header, v.hunk!.heading, ...v.hunk!.lines, ""].join("\n");
-}
-
-/**
- * The patch for the lines of a hunk the region covers, as
- * magit-diff-hunk-region-patch makes it: the other lines changed are left
- * as they are, a removal kept as context and an addition dropped, the other
- * way round for a patch applied in REVERSE, and the counts made again.
- */
-function regionPatch(v: FileValue, from: number, to: number, reverse: boolean): string {
-  const header = v.diff!.header.filter((l) => /^(diff --git|--- |\+\+\+ |new file mode|deleted file mode|old mode|new mode|index )/.test(l));
-  const [drop, keep] = reverse ? ["-", "+"] : ["+", "-"];
-  const lines: string[] = [];
-  v.hunk!.lines.forEach((l, i) => {
-    const inside = i >= from && i <= to;
-    if (inside || l.startsWith(" ") || l.startsWith("\\")) lines.push(l);
-    else if (l.startsWith(keep)) lines.push(` ${l.slice(1)}`);
-    else if (l.startsWith(drop)) return;
-    else lines.push(l);
-  });
-  const old = lines.filter((l) => l.startsWith(" ") || l.startsWith("-")).length;
-  const now = lines.filter((l) => l.startsWith(" ") || l.startsWith("+")).length;
-  const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(v.hunk!.heading);
-  const start = m ? Number(m[1]) : 1;
-  return [...header, `@@ -${start},${old} +${reverse ? Number(m?.[2] ?? start) : start},${now} @@${m?.[3] ?? ""}`, ...lines, ""].join("\n");
-}
-
-/** The lines of the hunk at point the active region covers, as indices of its lines, or undefined without a region in a hunk. */
-function regionLines(s: Section): [number, number] | undefined {
-  const mark = e8.mark();
-  if (s.type !== "hunk" || !e8.regionActive() || mark === undefined) return undefined;
-  const [a, b] = [Math.min(mark, e8.point()), Math.max(mark, e8.point())];
-  const first = e8.lineOf(s.content);
-  const from = Math.max(0, e8.lineOf(a) - first);
-  // A region ending at the start of a line leaves that line out.
-  const end = b > a && b === e8.lineBeginningPosition(b) ? b - 1 : b;
-  const to = e8.lineOf(end) - first;
-  return to >= 0 ? [from, to] : undefined;
-}
-
-export const magitStage = e8.defineCommand({
-  name: "magit-stage",
-  doc: "Add the change at point to the staging area: an untracked or changed file, or a hunk.",
-  run: () => {
-    const t = targets();
-    if (!t || t.values.length === 0) e8.userError("Nothing to stage");
-    const lines = regionLines(t.section);
-    for (const v of t.values) {
-      if (v.kind === "staged") e8.userError("Already staged");
-      if (v.hunk && lines) {
-        runGit(["apply", "--cached", "-p0", "--recount", "-"], regionPatch(v, lines[0], lines[1], false));
-        e8.deactivateMark();
-      } else if (v.hunk) runGit(["apply", "--cached", "-p0", "--ignore-space-change", "-"], hunkPatch(v));
-      else runGit(["add", "--", v.file]);
-    }
-  },
-});
-
-export const magitUnstage = e8.defineCommand({
-  name: "magit-unstage",
-  doc: "Remove the change at point from the staging area: a staged file or hunk.",
-  run: () => {
-    const t = targets();
-    if (!t || t.values.length === 0) e8.userError("Nothing to unstage");
-    const lines = regionLines(t.section);
-    for (const v of t.values) {
-      if (v.kind !== "staged") e8.userError("Already unstaged");
-      if (v.hunk && lines) {
-        runGit(["apply", "--cached", "--reverse", "-p0", "--recount", "-"], regionPatch(v, lines[0], lines[1], true));
-        e8.deactivateMark();
-      } else if (v.hunk) runGit(["apply", "--cached", "--reverse", "-p0", "-"], hunkPatch(v));
-      else if (hasCommits()) runGit(["reset", "-q", "--", v.file]);
-      else runGit(["rm", "--cached", "-q", "--", v.file]);
-    }
-  },
-});
-
-const stageModified = e8.defineCommand({
-  name: "magit-stage-modified",
-  doc: "Stage all changes to files tracked in the repository; with a prefix argument, untracked files too.",
-  params: [{ name: "all", kind: "prefix" }],
-  run: (all: e8.Value) => void runGit(["add", truthy(all) ? "--all" : "-u", "."]),
-});
-
-const unstageAll = e8.defineCommand({
-  name: "magit-unstage-all",
-  doc: "Remove all changes from the staging area.",
-  run: () => void runGit(hasCommits() ? ["reset", "-q", "HEAD", "--"] : ["rm", "--cached", "-r", "-q", "."]),
-});
-
-export const magitDiscard = e8.defineCommand({
-  name: "magit-discard",
-  doc: "Remove the change at point from the working tree, or the index for a staged one: an untracked file is deleted.",
-  run: () => {
-    const t = targets();
-    if (!t || t.values.length === 0) e8.userError("Nothing to discard");
-    const what = t.values.length === 1 ? (t.values[0].hunk ? "hunk" : t.values[0].file) : `${t.values.length} files`;
-    const kind = t.values[0].kind;
-    const verb = kind === "untracked" ? "Delete" : "Discard";
-    if (!e8.yOrNP(`${verb} ${what}? `)) e8.userError("Abort");
-    for (const v of t.values) {
-      if (v.kind === "untracked") {
-        e8.deleteFile(e8.expandFileName(v.file, repo()));
-        refreshAll();
-      } else if (v.hunk) {
-        runGit(v.kind === "staged" ? ["apply", "--cached", "--reverse", "-p0", "-"] : ["apply", "--reverse", "-p0", "-"], hunkPatch(v));
-      } else if (v.kind === "staged") {
-        runGit(["reset", "-q", "--", v.file]);
-        runGit(["checkout", "--", v.file]);
-      } else {
-        runGit(["checkout", "--", v.file]);
-      }
-    }
-  },
-});
+// Applying is magit-apply.ts's.
 
 /** Visits the file at point, at the line of the hunk line point is on, as magit-diff-visit-file. */
 export const magitVisitThing = e8.defineCommand({
@@ -1213,6 +1093,22 @@ const mergeMenu = transientDefinePrefix("magit-merge", {
 
 // Reset.
 
+/** Resets HEAD and the index to COMMIT, and with HARD the working tree too, as magit-reset-quickly. */
+export function magitResetQuickly(commit: string, hard = false): void {
+  runGit(["reset", hard ? "--hard" : "--mixed", commit, "--"]);
+}
+
+export const magitResetQuicklyCommand = e8.defineCommand({
+  name: "magit-reset-quickly",
+  doc: "Reset the `HEAD' and index to COMMIT, and possibly the working tree.\nWith a prefix argument reset the working tree otherwise don't.\n\n(git reset --mixed|--hard COMMIT)",
+  params: [{ name: "hard", kind: "prefix" }],
+  run: (hard: e8.Value) => {
+    const h = truthy(hard);
+    const branch = currentBranch() ?? "detached head";
+    magitResetQuickly(magitReadBranchOrCommit(h ? `Hard reset ${branch} to` : `Reset ${branch} to`), h);
+  },
+});
+
 const resetMenu = transientDefinePrefix("magit-reset", {
   doc: "Reset the current branch.",
   groups: [
@@ -1503,9 +1399,9 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
     {
       description: "Applying changes",
       items: [
-        { items: [["a", "Apply", notYet("magit-apply", "Applying a change from elsewhere")], ["v", "Reverse", notYet("magit-reverse", "Reversing a change")], ["k", "Discard", magitDiscard]] },
-        { items: [["s", "Stage", magitStage], ["u", "Unstage", magitUnstage]] },
-        { items: [["S", "Stage all", stageModified], ["U", "Unstage all", unstageAll]] },
+        { items: [["a", "Apply", magitApplyCommand], ["v", "Reverse", magitReverseCommand], ["k", "Discard", magitDiscardCommand]] },
+        { items: [["s", "Stage", magitStageCommand], ["u", "Unstage", magitUnstageCommand]] },
+        { items: [["S", "Stage all", magitStageModifiedCommand], ["U", "Unstage all", magitUnstageAllCommand]] },
       ],
     },
     {
@@ -1527,11 +1423,11 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
 });
 
 const bindings: [string, e8.DefinedCommand | string][] = [
-  ["s", magitStage],
-  ["S", stageModified],
-  ["u", magitUnstage],
-  ["U", unstageAll],
-  ["k", magitDiscard],
+  ["s", magitStageFilesCommand],
+  ["S", magitStageModifiedCommand],
+  ["u", magitUnstageFilesCommand],
+  ["U", magitUnstageAllCommand],
+  ["k", magitDeleteThing],
   ["RET", magitVisitThing],
   ["g", refreshCommand],
   ["G", refreshAllCommand],
@@ -1542,6 +1438,7 @@ const bindings: [string, e8.DefinedCommand | string][] = [
   ["F", pullMenu],
   ["f", fetchMenu],
   ["m", mergeMenu],
+  ["x", magitResetQuicklyCommand],
   ["X", resetMenu],
   ["z", stashMenu],
   ["r", magitRebase],
