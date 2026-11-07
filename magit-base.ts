@@ -19,6 +19,11 @@ e8.defineVariable({
   value: [],
 });
 e8.defineVariable({
+  name: "magit-verbose-messages",
+  doc: "Whether to make certain prompts and messages more verbose.",
+  value: false,
+});
+e8.defineVariable({
   name: "magit-delete-by-moving-to-trash",
   doc: "Whether Magit uses the system's trash can when it deletes files.",
   value: true,
@@ -66,6 +71,30 @@ export function magitCompletingRead(prompt: string, collection: Iterable<string>
   return reply;
 }
 
+/**
+ * Reads several of TABLE, separated by commas, as
+ * magit-completing-read-multiple: each part after the last comma
+ * completes against TABLE, which keeps its order. Gives the parts, or
+ * with NO-SPLIT the input as it was typed.
+ */
+export function magitCompletingReadMultiple(prompt: string, table: Iterable<string>, options: { initialInput?: string; history?: string; def?: string; noSplit?: boolean; requireMatch?: boolean } = {}): string[] {
+  const choices = Array.from(table);
+  if (options.def !== undefined && !choices.includes(options.def)) choices.unshift(options.def);
+  const separator = /[ \t]*,[ \t]*/;
+  // Completes the last part, keeping those before it, as completing-read-multiple's table does.
+  const complete = (input: string): string[] => {
+    const before = /^(.*,[ \t]*)/s.exec(input)?.[1] ?? "";
+    return choices.map((c) => before + c);
+  };
+  const reply = e8.completingRead(prompt, complete, { initial: options.initialInput, history: options.history, default: options.def });
+  if (options.noSplit) return [reply];
+  const items = reply.split(separator).filter((part) => part !== "");
+  // Empty input is the default, if any.
+  if (items.length === 0 && options.def !== undefined) return [options.def];
+  if (options.requireMatch) for (const item of items) if (!choices.includes(item)) e8.userError(`No match for ${item}`);
+  return items;
+}
+
 /** Reads a string, trimmed, as magit-read-string: empty input is the default, or an error without one. */
 export function magitReadString(prompt: string, initialInput?: string, history?: string, def?: string, noWhitespace = false): string {
   let reply = e8.readString(magitFormatPrompt(prompt, def), { initial: initialInput, history, default: def }).trim();
@@ -104,7 +133,29 @@ export function magitConfirm(action: string | true, prompt?: string, promptN?: s
   return items ?? true;
 }
 
-/** Whether the prefix argument was given, as current-prefix-arg in a command. */
+/** ACTION as a prompt, its dashes spaces and its first letter capital, as magit-confirm-make-prompt. */
+export const magitConfirmMakePrompt = (action: string): string => `${action.charAt(0).toUpperCase()}${action.slice(1)}`.replace(/-/g, " ");
+
+/** Asks before ACTION on FILES, naming them, as magit-confirm-files; nothing without files. */
+export function magitConfirmFiles(action: string, files: string[], prompt?: string): string[] | undefined {
+  if (files.length === 0) return undefined;
+  const p = prompt ?? magitConfirmMakePrompt(action);
+  return magitConfirm(action, `${p} "%s"`, `${p} %d files`, files) as string[];
+}
+
+/**
+ * Asks with CLAUSES, each [char, description, value], as
+ * magit-read-char-case: the prompt lists the descriptions, with VERBOSE
+ * "[C-g] to abort" too, and the value of the clause of the key typed is
+ * the answer.
+ */
+export function magitReadCharCase<T>(prompt: string, verbose: boolean, clauses: [string, string, T][]): T {
+  const parts = [...clauses.map((c) => c[1]), ...(verbose ? ["[C-g] to abort"] : [])];
+  const c = e8.readCharChoice(`${prompt}${parts.slice(0, -1).join(", ")}, or ${parts[parts.length - 1]} `, clauses.map((cl) => cl[0]).join(""));
+  e8.message("");
+  return clauses.find((cl) => cl[0] === c)![2];
+}
+
 export const prefixArgP = (): boolean => truthy(e8.prefixArg());
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

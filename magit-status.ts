@@ -278,7 +278,7 @@ function insertRemoteHeader(): void {
 // Lists of files.
 
 /** The untracked files as magit-status-show-untracked-files and status.showUntrackedFiles say, as magit-list-untracked-files. */
-function listUntrackedFiles(files: string[]): string[] {
+export function magitListUntrackedFiles(files: string[] = []): string[] {
   let value = e8.variable("magit-status-show-untracked-files") as string | boolean | null;
   const local = magitGet("--local", "status.showUntrackedFiles");
   if (local !== undefined && value === true) value = local === "no" ? false : local === "all" ? "all" : true;
@@ -312,7 +312,7 @@ function insertFiles(type: string, list: (files: string[]) => string[]): void {
   }, `magit-insert-${type}-files`);
 }
 
-export const magitInsertUntrackedFiles = (): void => insertFiles("untracked", listUntrackedFiles);
+export const magitInsertUntrackedFiles = (): void => insertFiles("untracked", magitListUntrackedFiles);
 export const magitInsertTrackedFiles = (): void => insertFiles("tracked", (f) => magitListFiles("--", ...f));
 export const magitInsertIgnoredFiles = (): void => insertFiles("ignored", () => magitIgnoredFiles());
 export const magitInsertSkipWorktreeFiles = (): void => insertFiles("skip-worktree", () => magitSkipWorktreeFiles());
@@ -485,7 +485,11 @@ export const magitStatus = e8.defineCommand({
   run: (prefix: e8.Value) => {
     const top = magitToplevel();
     if (top && !truthy(prefix)) return void magitStatusSetupBuffer(top);
-    const answer = e8.readFileName(truthy(prefix) ? "Git repository: " : "Initialize Git repository: ", { dir: String(e8.variable("default-directory")) });
+    // magit-repos.ts reads one of magit-repository-directories' repositories, or any directory.
+    const readDirectory = truthy(prefix) && e8.prefixNumericValue(prefix as e8.PrefixArg) >= 16;
+    const answer = e8.fboundp("magit-read-repository")
+      ? String(e8.funcall("magit-read-repository", readDirectory))
+      : e8.readFileName("Git repository: ", { dir: magitToplevel() ?? String(e8.variable("default-directory")) });
     const dir = e8.fileNameAsDirectory(e8.expandFileName(answer));
     const toplevel = magitToplevel(dir);
     if (toplevel && toplevel === dir) return void magitStatusSetupBuffer(dir);
@@ -609,6 +613,16 @@ e8.defineKeymap("magit-staged-section-map", null);
 e8.defineKeymap("magit-error-section-map", null);
 e8.remapCommand("magit-unstaged-section-map", "magit-visit-thing" as e8.CommandName, "magit-diff-unstaged" as e8.CommandName);
 e8.remapCommand("magit-staged-section-map", "magit-visit-thing" as e8.CommandName, "magit-diff-staged" as e8.CommandName);
+for (const [map, from, to] of [
+  ["magit-untracked-section-map", "magit-delete-thing", "magit-discard"],
+  ["magit-untracked-section-map", "magit-stage-files", "magit-stage"],
+  ["magit-unstaged-section-map", "magit-stage-files", "magit-stage"],
+  ["magit-unstaged-section-map", "magit-delete-thing", "magit-discard"],
+  ["magit-staged-section-map", "magit-revert-no-commit", "magit-reverse"],
+  ["magit-staged-section-map", "magit-delete-thing", "magit-discard"],
+  ["magit-staged-section-map", "magit-unstage-files", "magit-unstage"],
+] as const)
+  e8.remapCommand(map, from as e8.CommandName, to as e8.CommandName);
 e8.remapCommand("magit-error-section-map", "magit-visit-thing" as e8.CommandName, "magit-process-buffer" as e8.CommandName);
 for (const t of ["untracked", "unstaged", "staged", "error"]) magitSectionDefineType(t, { keymap: `magit-${t}-section-map` });
 

@@ -46,6 +46,7 @@ import { magitBufferName, magitDisplayBuffer, magitRefresh } from "magit-mode";
 import { inserters } from "magit-diff";
 import { magitLogWashSummary } from "magit-log";
 import { magitStatusSetupBuffer } from "magit-status";
+import { magitRepolistMode, magitRepolistRefresh, magitRepolistSetup1, type RepolistColumn, type RepolistSpec } from "magit-repos";
 
 // Options.
 
@@ -96,8 +97,6 @@ e8.defineVariable({
   value: false,
 });
 e8.defineVariable({ name: "magit-modules-overview-align-numbers", doc: "Whether magit-insert-modules-overview puts a space before a description that starts with a digit, to line it up with v-prefixed ones.", value: true });
-e8.defineVariable({ name: "magit-repolist-columns", doc: "The columns of a repository list, as magit-submodule-list-columns.", value: null, local: true });
-e8.defineVariable({ name: "magit-repolist-sort-key", doc: "The initial sort key of a repository list, as (NAME . FLIP).", value: null, local: true });
 
 /** The current buffer's directory. */
 const defaultDirectory = (): string => String(e8.variable("default-directory") ?? ".");
@@ -374,7 +373,7 @@ export const magitSubmoduleRemove = e8.defineCommand({
 export const magitListSubmodules = e8.defineCommand({
   name: "magit-list-submodules",
   doc: "Display a list of the current repository's populated submodules.",
-  run: () => void magitSubmoduleListSetup(e8.variable("magit-submodule-list-columns") as unknown as Column[]),
+  run: () => void magitSubmoduleListSetup(e8.variable("magit-submodule-list-columns") as unknown as RepolistColumn[]),
 });
 
 export const magitSubmodule = transientDefinePrefix("magit-submodule", {
@@ -596,100 +595,30 @@ magitSectionDefineType("module", { keymap: "magit-module-section-map" });
 
 // The list.
 //
-// Magit builds this on magit-repolist-mode, of magit-repos.el, which E8's
-// Magit has not ported: the list mode here is built on tabulated-list-mode,
-// with magit-repolist-mode's keys and the repolist columns it uses defined
-// below, unless magit-repos has defined them first.
+// The list of modules is a repository list of magit-repos.ts, with the
+// columns of magit-submodule-list-columns.
 
-/** A column: its header, width, the function giving its text, and its properties as [key, value] pairs. */
-type Column = [string, number, string | ((spec: Spec) => unknown), [string, e8.Value][]];
-/** What a column's function is given: [key, value] pairs, :path, :title, :width and the column's properties. */
-type Spec = [string, e8.Value][];
-const specGet = (spec: Spec, key: string): e8.Value | undefined => spec.find((e) => e[0] === key)?.[1];
-
-/** Defines NAME as FN unless it already is, so magit-repos's own definitions win. */
+/** Defines NAME as FN unless it already is, so a config's definition wins. */
 const defunOnce = (name: string, fn: (...args: any[]) => unknown): void => {
   if (!e8.fboundp(name)) e8.defun(name, fn);
 };
 
-/** A count, as magit-repolist-insert-count: bold above the normal count, "+" above 9 in a column one wide. */
-function magitRepolistInsertCount(n: number, spec: Spec): e8.PropertizedString {
-  const text = n > 9 && Number(specGet(spec, ":width")) === 1 ? "+" : String(n);
-  return e8.propertize(text, { face: n > Number(specGet(spec, ":normal-count") ?? 0) ? "bold" : "shadow" });
-}
-
-defunOnce("magit-modulelist-column-path", (spec: Spec) => {
-  const path = String(specGet(spec, ":path"));
+defunOnce("magit-modulelist-column-path", (spec: RepolistSpec) => {
+  const path = String(spec.find((e) => e[0] === ":path")?.[1]);
   for (const fn of (e8.variable("magit-submodule-list-format-path-functions") as unknown[] | null) ?? []) {
     const r = e8.funcall(fn as string, path);
     if (truthy(r)) return r;
   }
   return path;
 });
-defunOnce("magit-repolist-column-version", () => {
-  let v = magitGitString("describe", "--tags", "--dirty") ?? magitRevFormat("%cd-g%h", "HEAD", "--date=format:%Y%m%d.%H%M");
-  if (!v) return undefined;
-  const m = /(-([0-9]*)(-g[a-z0-9]*))?(?:-(dirty))?$/.exec(v);
-  if (m && m[2] === "1" && /^Resume development$/.test(magitRevFormat("%s") ?? "")) v = v.slice(0, m.index) + "+" + v.slice(m.index + (m[1]?.length ?? 0));
-  if (/^[0-9]/.test(v)) return ` ${v}`;
-  return v;
-});
-defunOnce("magit-repolist-version<", (a: string, b: string) => {
-  const re = /[0-9]+(\.[0-9]*)*/;
-  const x = re.exec(a)?.[0];
-  const y = re.exec(b)?.[0];
-  if (x && y) {
-    const xs = x.split(".").map(Number);
-    const ys = y.split(".").map(Number);
-    for (let i = 0; i < Math.max(xs.length, ys.length); i++) if ((xs[i] || 0) !== (ys[i] || 0)) return (xs[i] || 0) < (ys[i] || 0);
-    return false;
-  }
-  return !y;
-});
-defunOnce("magit-repolist-column-branch", () => {
-  const branch = magitGetCurrentBranch();
-  const main = (e8.variable("magit-main-branch-names") as string[] | null) ?? [];
-  return branch && main.includes(branch) ? e8.propertize(branch, { face: "shadow" }) : branch;
-});
-defunOnce("magit-repolist-column-upstream", () => magitGetUpstreamBranch());
-defunOnce("magit-repolist-column-unpulled-from-upstream", (spec: Spec) => {
-  const u = magitGetUpstreamBranch();
-  return u ? magitRepolistInsertCount(magitRevDiffCount("HEAD", u)[1], spec) : undefined;
-});
-defunOnce("magit-repolist-column-unpulled-from-pushremote", (spec: Spec) => {
-  const p = magitGetPushBranch(undefined, true);
-  return p ? magitRepolistInsertCount(magitRevDiffCount("HEAD", p)[1], spec) : undefined;
-});
-defunOnce("magit-repolist-column-unpushed-to-upstream", (spec: Spec) => {
-  const u = magitGetUpstreamBranch();
-  return u ? magitRepolistInsertCount(magitRevDiffCount("HEAD", u)[0], spec) : undefined;
-});
-defunOnce("magit-repolist-column-unpushed-to-pushremote", (spec: Spec) => {
-  const p = magitGetPushBranch(undefined, true);
-  return p ? magitRepolistInsertCount(magitRevDiffCount("HEAD", p)[0], spec) : undefined;
-});
-defunOnce("magit-repolist-column-branches", (spec: Spec) => magitRepolistInsertCount(magitListLocalBranches().length, [[":normal-count", 1], ...spec]));
-defunOnce("magit-repolist-column-stashes", (spec: Spec) => magitRepolistInsertCount(magitListStashes().length, spec));
-
-if (!e8.fboundp("magit-repolist-status"))
-  e8.defineCommand({
-    name: "magit-repolist-status",
-    doc: "Show the status for the repository at point.",
-    run: () => {
-      const id = e8.getTextProperty(e8.point(), "tabulated-list-id");
-      if (typeof id !== "string") e8.userError("There is no repository at point");
-      magitStatusSetupBuffer(e8.fileNameAsDirectory(String(id)));
-    },
-  });
 
 export const magitSubmoduleListMode = e8.defineMajorMode({
   name: "magit-submodule-list-mode",
   modeName: "Modules",
-  parent: "tabulated-list-mode" as e8.CommandName,
+  parent: magitRepolistMode,
   doc: "Major mode for browsing a list of Git submodules.",
-  bindings: { RET: "magit-repolist-status" as e8.CommandName, f: "magit-fetch-modules" as e8.CommandName },
   setup: () => {
-    e8.setVariable("tabulated-list-padding", 0);
+    e8.removeHook("tabulated-list-revert-hook", magitRepolistRefresh, { local: true });
     e8.addHook("tabulated-list-revert-hook", magitSubmoduleListRefresh, { local: true });
   },
 });
@@ -698,7 +627,7 @@ export const magitSubmoduleListMode = e8.defineMajorMode({
 const predicates = new Map<string, (module: string) => boolean>();
 
 /** Shows the list of submodules with COLUMNS, those PREDICATE accepts, as magit-submodule-list-setup. */
-export function magitSubmoduleListSetup(columns: Column[], predicate?: (module: string) => boolean): string {
+export function magitSubmoduleListSetup(columns: RepolistColumn[], predicate?: (module: string) => boolean): string {
   const top = magitToplevelOrError();
   const name = magitBufferName("magit-submodule-list-mode", top);
   e8.getBufferCreate(name);
@@ -707,7 +636,9 @@ export function magitSubmoduleListSetup(columns: Column[], predicate?: (module: 
     e8.call(magitSubmoduleListMode);
     e8.makeLocalVariable("default-directory");
     e8.setVariable("default-directory", top);
+    e8.makeLocalVariable("magit-repolist-columns");
     e8.setVariable("magit-repolist-columns", columns as unknown as e8.Value);
+    e8.makeLocalVariable("magit-repolist-sort-key");
     e8.setVariable("magit-repolist-sort-key", e8.variable("magit-submodule-list-sort-key") ?? null);
     if (predicate) predicates.set(name, predicate);
     else predicates.delete(name);
@@ -717,43 +648,9 @@ export function magitSubmoduleListSetup(columns: Column[], predicate?: (module: 
   return name;
 }
 
-/** The cell of column IDX of a tabulated list entry, as a string. */
-const cell = (entry: e8.Value, idx: number): string => String(((entry as e8.Value[])[1] as e8.Value[])[idx] ?? "");
-
-/** Sets the list's format and sort key from magit-repolist-columns, as magit-repolist-setup-1. */
-function magitRepolistSetup1(): void {
-  const columns = (e8.variable("magit-repolist-columns") as unknown as Column[] | null) ?? [];
-  if (!truthy(e8.variable("tabulated-list-sort-key"))) {
-    const key = e8.variable("magit-repolist-sort-key") as e8.Value[] | null;
-    if (key) {
-      const column = columns.find((c) => c[0] === key[0])?.[0] ?? columns[0]?.[0];
-      e8.setVariable("tabulated-list-sort-key", [column ?? null, key[1] ?? false]);
-    }
-  }
-  const sym = (s: string) => Symbol.for(s) as unknown as e8.Value;
-  e8.setVariable(
-    "tabulated-list-format",
-    columns.map(([title, width, , props], idx) => {
-      const sortSet = (props ?? []).find((p) => p[0] === ":sort");
-      const sortFn = sortSet?.[1];
-      const sort: e8.Value =
-        sortFn === "<"
-          ? (a: e8.Value, b: e8.Value) => Number(cell(a, idx)) < Number(cell(b, idx))
-          : sortFn === "magit-repolist-version<"
-            ? (a: e8.Value, b: e8.Value) => truthy(e8.funcall("magit-repolist-version<", cell(a, idx), cell(b, idx)))
-            : truthy(sortFn)
-              ? (sortFn as e8.Value)
-              : sortSet
-                ? false
-                : true;
-      return [title, width, sort, ...(props ?? []).filter((p) => p[0] !== ":sort").flatMap(([k, v]) => [sym(k), v])];
-    }),
-  );
-}
-
 /** Lists the populated modules afresh, as magit-submodule-list-refresh. */
 export function magitSubmoduleListRefresh(): void {
-  const columns = (e8.variable("magit-repolist-columns") as unknown as Column[] | null) ?? [];
+  const columns = (e8.variable("magit-repolist-columns") as unknown as RepolistColumn[] | null) ?? [];
   const predicate = predicates.get(e8.bufferName());
   const top = defaultDirectory();
   const entries: e8.Value[] = [];

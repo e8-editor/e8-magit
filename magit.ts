@@ -2,7 +2,7 @@
 //
 // Magit, after Magit 4.4.0 (https://github.com/magit/magit): magit.el and
 // the files of its lisp/ directory it draws on, among them magit-status.el,
-// magit-diff.el, magit-apply.el, magit-log.el, magit-commit.el,
+// magit-diff.el, magit-log.el, magit-commit.el,
 // git-commit.el, magit-branch.el, magit-push.el, magit-pull.el,
 // magit-fetch.el, magit-merge.el, magit-reset.el, magit-stash.el,
 // magit-sequence.el, git-rebase.el and magit-process.el. Git in a status
@@ -14,10 +14,10 @@
 // refreshes, $ shows the git commands run, q quits. The prefix keys open
 // transient menus, as Magit's do.
 //
-// Commit messages are written in a COMMIT_EDITMSG buffer, C-c C-c to
-// commit and C-c C-k to give up, as git-commit.el's are, and rebase todo
-// lists in git-rebase-mode: git runs E8 as its editor through with-editor,
-// as Magit has it run Emacs.
+// Commit messages are written in a COMMIT_EDITMSG buffer, in
+// git-commit-mode (git-commit.ts), C-c C-c to commit and C-c C-k to give
+// up, and rebase todo lists in git-rebase-mode: git runs E8 as its
+// editor through with-editor, as Magit has it run Emacs.
 //
 // Copyright (C) 2008-2025 The Magit Project Contributors
 // Copyright (C) 2026 The E8 contributors
@@ -53,11 +53,13 @@ import {
   magitToplevelOrError,
   magitUntrackedFiles,
   magitWithRefreshCache,
+  magitGitVersion,
 } from "magit-git";
 import {
   magitDiffMode,
   magitLogMode,
   magitMode,
+  magitModeBuryBuffer,
   magitRefreshAll,
   magitRefreshAllCommand,
   magitRefreshBuffer,
@@ -66,6 +68,7 @@ import {
   magitRevisionMode,
   magitSetupBuffer,
   magitStatusMode,
+  magitDeleteThing,
 } from "magit-mode";
 import {
   magitDiffArguments,
@@ -79,9 +82,21 @@ import {
   type FileValue,
 } from "magit-diff";
 import { magitInitCommand, magitStatus } from "magit-status";
+import {
+  magitApplyCommand,
+  magitDiscardCommand,
+  magitReverseCommand,
+  magitStageCommand,
+  magitStageFilesCommand,
+  magitStageModifiedCommand,
+  magitUnstageAllCommand,
+  magitUnstageCommand,
+  magitUnstageFilesCommand,
+} from "magit-apply";
 import "magit-log";
 import "magit-bundle";
 import "git-rebase";
+import "git-commit";
 import { magitAm, magitCherryApply, magitCherryPick, magitRebase, magitRevert, magitRevertNoCommit } from "magit-sequence";
 import { magitTag } from "magit-tag";
 import { magitBisect } from "magit-bisect";
@@ -90,12 +105,19 @@ import { magitFileCheckout, magitFileRename, magitFileUntrack } from "magit-file
 import { magitGitignore } from "magit-gitignore";
 import { magitNotes } from "magit-notes";
 import { magitSubtree } from "magit-subtree";
+import "magit-repos";
+import "magit-sparse-checkout";
 import { magitSubmodule } from "magit-submodule";
 import { magitPatch } from "magit-patch";
 import { magitWorktree } from "magit-worktree";
 import { magitRemote } from "magit-remote";
 import { magitClone } from "magit-clone";
-import { magitGitMergetool, magitRunGitGui, magitRunGitk, magitRunGitkAll, magitRunGitkBranches } from "magit-extras";
+import "magit-blame";
+import { magitGitMergetool, magitPopRevisionStackCommand, magitRunGitGui, magitRunGitk, magitRunGitkAll, magitRunGitkBranches } from "magit-extras";
+import "magit-dired";
+import "magit-autorevert";
+import "magit-bookmark";
+import { magitAnyWipModeEnabledP, magitWipCommitAfterApply, magitWipCommitBeforeChange, magitWipCommitCommand } from "magit-wip";
 import { magitProcessBuffer, magitProcessBufferCommand, magitRunGit, magitRunGitWithInput, magitStartGitWith, magitStartProcess } from "magit-process";
 
 // Faces.
@@ -158,139 +180,7 @@ const repoName = magitRepoName;
 
 const face = (text: string, f: string): e8.PropertizedString => e8.propertize(text, { face: f });
 
-// Applying: staging, unstaging and discarding.
-
-/** The file or hunk at point, or the files of the section at point, as magit-apply's targets. */
-function targets(): { section: Section; values: FileValue[] } | undefined {
-  const s = currentSection();
-  if (!s) return undefined;
-  // An untracked file's section has its name as its value, as Magit's has.
-  const asValue = (x: Section): FileValue => (typeof x.value === "string" ? { file: x.value, kind: "untracked" } : (x.value as FileValue));
-  if (s.type === "file" || s.type === "hunk") return { section: s, values: [asValue(s)] };
-  // The untracked list's files are inserted only when it is shown: ask git for them.
-  if (s.type === "untracked") return { section: s, values: magitUntrackedFiles().map((file) => ({ file, kind: "untracked" as const })) };
-  if (s.type === "unstaged" || s.type === "staged") return { section: s, values: s.children.map(asValue) };
-  return { section: s, values: [] };
-}
-
-/** The patch for a hunk, with its file's header, for git apply. */
-function hunkPatch(v: FileValue): string {
-  const header = v.diff!.header.filter((l) => /^(diff --git|--- |\+\+\+ |new file mode|deleted file mode|old mode|new mode|index )/.test(l));
-  return [...header, v.hunk!.heading, ...v.hunk!.lines, ""].join("\n");
-}
-
-/**
- * The patch for the lines of a hunk the region covers, as
- * magit-diff-hunk-region-patch makes it: the other lines changed are left
- * as they are, a removal kept as context and an addition dropped, the other
- * way round for a patch applied in REVERSE, and the counts made again.
- */
-function regionPatch(v: FileValue, from: number, to: number, reverse: boolean): string {
-  const header = v.diff!.header.filter((l) => /^(diff --git|--- |\+\+\+ |new file mode|deleted file mode|old mode|new mode|index )/.test(l));
-  const [drop, keep] = reverse ? ["-", "+"] : ["+", "-"];
-  const lines: string[] = [];
-  v.hunk!.lines.forEach((l, i) => {
-    const inside = i >= from && i <= to;
-    if (inside || l.startsWith(" ") || l.startsWith("\\")) lines.push(l);
-    else if (l.startsWith(keep)) lines.push(` ${l.slice(1)}`);
-    else if (l.startsWith(drop)) return;
-    else lines.push(l);
-  });
-  const old = lines.filter((l) => l.startsWith(" ") || l.startsWith("-")).length;
-  const now = lines.filter((l) => l.startsWith(" ") || l.startsWith("+")).length;
-  const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(v.hunk!.heading);
-  const start = m ? Number(m[1]) : 1;
-  return [...header, `@@ -${start},${old} +${reverse ? Number(m?.[2] ?? start) : start},${now} @@${m?.[3] ?? ""}`, ...lines, ""].join("\n");
-}
-
-/** The lines of the hunk at point the active region covers, as indices of its lines, or undefined without a region in a hunk. */
-function regionLines(s: Section): [number, number] | undefined {
-  const mark = e8.mark();
-  if (s.type !== "hunk" || !e8.regionActive() || mark === undefined) return undefined;
-  const [a, b] = [Math.min(mark, e8.point()), Math.max(mark, e8.point())];
-  const first = e8.lineOf(s.content);
-  const from = Math.max(0, e8.lineOf(a) - first);
-  // A region ending at the start of a line leaves that line out.
-  const end = b > a && b === e8.lineBeginningPosition(b) ? b - 1 : b;
-  const to = e8.lineOf(end) - first;
-  return to >= 0 ? [from, to] : undefined;
-}
-
-export const magitStage = e8.defineCommand({
-  name: "magit-stage",
-  doc: "Add the change at point to the staging area: an untracked or changed file, or a hunk.",
-  run: () => {
-    const t = targets();
-    if (!t || t.values.length === 0) e8.userError("Nothing to stage");
-    const lines = regionLines(t.section);
-    for (const v of t.values) {
-      if (v.kind === "staged") e8.userError("Already staged");
-      if (v.hunk && lines) {
-        runGit(["apply", "--cached", "-p0", "--recount", "-"], regionPatch(v, lines[0], lines[1], false));
-        e8.deactivateMark();
-      } else if (v.hunk) runGit(["apply", "--cached", "-p0", "--ignore-space-change", "-"], hunkPatch(v));
-      else runGit(["add", "--", v.file]);
-    }
-  },
-});
-
-export const magitUnstage = e8.defineCommand({
-  name: "magit-unstage",
-  doc: "Remove the change at point from the staging area: a staged file or hunk.",
-  run: () => {
-    const t = targets();
-    if (!t || t.values.length === 0) e8.userError("Nothing to unstage");
-    const lines = regionLines(t.section);
-    for (const v of t.values) {
-      if (v.kind !== "staged") e8.userError("Already unstaged");
-      if (v.hunk && lines) {
-        runGit(["apply", "--cached", "--reverse", "-p0", "--recount", "-"], regionPatch(v, lines[0], lines[1], true));
-        e8.deactivateMark();
-      } else if (v.hunk) runGit(["apply", "--cached", "--reverse", "-p0", "-"], hunkPatch(v));
-      else if (hasCommits()) runGit(["reset", "-q", "--", v.file]);
-      else runGit(["rm", "--cached", "-q", "--", v.file]);
-    }
-  },
-});
-
-const stageModified = e8.defineCommand({
-  name: "magit-stage-modified",
-  doc: "Stage all changes to files tracked in the repository; with a prefix argument, untracked files too.",
-  params: [{ name: "all", kind: "prefix" }],
-  run: (all: e8.Value) => void runGit(["add", truthy(all) ? "--all" : "-u", "."]),
-});
-
-const unstageAll = e8.defineCommand({
-  name: "magit-unstage-all",
-  doc: "Remove all changes from the staging area.",
-  run: () => void runGit(hasCommits() ? ["reset", "-q", "HEAD", "--"] : ["rm", "--cached", "-r", "-q", "."]),
-});
-
-export const magitDiscard = e8.defineCommand({
-  name: "magit-discard",
-  doc: "Remove the change at point from the working tree, or the index for a staged one: an untracked file is deleted.",
-  run: () => {
-    const t = targets();
-    if (!t || t.values.length === 0) e8.userError("Nothing to discard");
-    const what = t.values.length === 1 ? (t.values[0].hunk ? "hunk" : t.values[0].file) : `${t.values.length} files`;
-    const kind = t.values[0].kind;
-    const verb = kind === "untracked" ? "Delete" : "Discard";
-    if (!e8.yOrNP(`${verb} ${what}? `)) e8.userError("Abort");
-    for (const v of t.values) {
-      if (v.kind === "untracked") {
-        e8.deleteFile(e8.expandFileName(v.file, repo()));
-        refreshAll();
-      } else if (v.hunk) {
-        runGit(v.kind === "staged" ? ["apply", "--cached", "--reverse", "-p0", "-"] : ["apply", "--reverse", "-p0", "-"], hunkPatch(v));
-      } else if (v.kind === "staged") {
-        runGit(["reset", "-q", "--", v.file]);
-        runGit(["checkout", "--", v.file]);
-      } else {
-        runGit(["checkout", "--", v.file]);
-      }
-    }
-  },
-});
+// Applying is magit-apply.ts's.
 
 /** Visits the file at point, at the line of the hunk line point is on, as magit-diff-visit-file. */
 export const magitVisitThing = e8.defineCommand({
@@ -324,11 +214,6 @@ export const magitVisitThing = e8.defineCommand({
 });
 
 // Committing, after magit-commit.el and git-commit.el.
-
-e8.defineVariable({ name: "git-commit-summary-max-length", doc: "Column beyond which characters in the summary line are highlighted.", value: 68 });
-e8.defineFace({ name: "git-commit-summary", doc: "Face used for the summary in commit messages.", attributes: { inherit: "font-lock-type-face" } });
-e8.defineFace({ name: "git-commit-comment-heading", doc: "Face used for headings in commit message comments.", attributes: { inherit: "git-commit-keyword" } });
-e8.defineFace({ name: "git-commit-keyword", doc: "Face used for keywords in commit messages.", attributes: { inherit: "font-lock-string-face" } });
 
 /** The diff a commit makes, shown beside its message, as magit-commit-diff; the buffer, to take away when done. */
 let commitDiff: string | undefined;
@@ -366,39 +251,10 @@ e8.addHook("with-editor-post-finish-hook", hideCommitDiff);
 e8.addHook("with-editor-post-cancel-hook", hideCommitDiff);
 e8.setDefault("with-editor-file-modes", [
   ...((e8.variable("with-editor-file-modes") as string[][] | null) ?? []),
-  ["/\\(?:COMMIT\\|MERGE\\|TAG\\)_EDITMSG\\'", "git-commit-mode"],
   ["/git-rebase-todo\\'", "git-rebase-mode"],
 ]);
 
-/** Highlights the summary line and comments, as git-commit-mode's font-lock keywords. */
-function fontifyCommit(start: number, end: number): void {
-  e8.withSilentModifications(() => {
-    for (let line = e8.lineOf(start); line <= e8.lineOf(Math.max(start, end - 1)); line++) {
-      const ls = e8.lineStart(line);
-      const le = e8.lineEnd(line);
-      const text = e8.lineText(line);
-      if (text.startsWith("#")) e8.putTextProperty(ls, le, "face", "font-lock-comment-face");
-      else if (line === 0) {
-        const max = Number(e8.variable("git-commit-summary-max-length") ?? 68);
-        e8.putTextProperty(ls, Math.min(le, ls + max), "face", "git-commit-summary");
-        if (le > ls + max) e8.putTextProperty(ls + max, le, "face", "font-lock-warning-face");
-      }
-    }
-  });
-}
-
-export const gitCommitMode = e8.defineMajorMode({
-  name: "git-commit-mode",
-  modeName: "Git-Commit",
-  parent: "text-mode",
-  doc: "Major mode for editing git commit messages: C-c C-c commits, C-c C-k cancels.",
-  setup: () => {
-    e8.makeLocalVariable("fill-column");
-    e8.setVariable("fill-column", 72);
-    e8.addHook("jit-lock-functions", fontifyCommit, { local: true });
-  },
-});
-
+e8.defineKey("git-commit-mode-map", "C-c C-w", magitPopRevisionStackCommand);
 const commitArgs = (): string[] => transientArgs("magit-commit");
 
 const commitCreate = e8.defineCommand({
@@ -578,6 +434,7 @@ const resetCommand = (mode: string, doc: string) =>
     run: () => {
       const s = currentSection();
       const def = s?.type === "commit" ? String(s.value) : "HEAD";
+      magitWipCommitBeforeChange(undefined, " before reset");
       runGit(["reset", `--${mode}`, readBranch(`${mode[0].toUpperCase()}${mode.slice(1)} reset ${currentBranch() ?? "HEAD"} to`, [...localBranches(), ...remoteBranches()], def)]);
     },
   });
@@ -1141,6 +998,7 @@ const logMenu = transientDefinePrefix("magit-log", {
             ["H", "HEAD", "magit-reflog-head"],
           ],
         },
+        { description: "Wiplog", if: magitAnyWipModeEnabledP, items: [["i", "index", "magit-wip-log-index"], ["w", "worktree", "magit-wip-log-worktree"]] },
         { description: "Other", items: [["s", "shortlog", shortlog]] },
       ],
     },
@@ -1212,6 +1070,22 @@ const mergeMenu = transientDefinePrefix("magit-merge", {
 });
 
 // Reset.
+
+/** Resets HEAD and the index to COMMIT, and with HARD the working tree too, as magit-reset-quickly. */
+export function magitResetQuickly(commit: string, hard = false): void {
+  runGit(["reset", hard ? "--hard" : "--mixed", commit, "--"]);
+}
+
+export const magitResetQuicklyCommand = e8.defineCommand({
+  name: "magit-reset-quickly",
+  doc: "Reset the `HEAD' and index to COMMIT, and possibly the working tree.\nWith a prefix argument reset the working tree otherwise don't.\n\n(git reset --mixed|--hard COMMIT)",
+  params: [{ name: "hard", kind: "prefix" }],
+  run: (hard: e8.Value) => {
+    const h = truthy(hard);
+    const branch = currentBranch() ?? "detached head";
+    magitResetQuickly(magitReadBranchOrCommit(h ? `Hard reset ${branch} to` : `Reset ${branch} to`), h);
+  },
+});
 
 const resetMenu = transientDefinePrefix("magit-reset", {
   doc: "Reset the current branch.",
@@ -1295,15 +1169,7 @@ const snapshot = (name: string, doc: string, extra: string[]) =>
       runGit(["stash", "store", "-m", `Snapshot of ${branchOrHead()}`, hash]);
     },
   });
-const stashToWip = e8.defineCommand({
-  name: "magit-wip-commit",
-  doc: "Commit the working tree's changes to a work-in-progress ref, refs/wip/wtree/refs/heads/BRANCH.",
-  run: () => {
-    const hash = gitOutput(["stash", "create"]).output.trim();
-    if (hash === "") e8.userError("No local changes to save");
-    runGit(["update-ref", `refs/wip/wtree/refs/heads/${branchOrHead()}`, hash]);
-  },
-});
+const stashToWip = magitWipCommitCommand;
 const stashList = "magit-stash-list";
 const stashBranch = e8.defineCommand({
   name: "magit-stash-branch",
@@ -1392,7 +1258,96 @@ const sectionInfo = e8.defineCommand({
     e8.message(`(${chain.join(" ")}) [${s.start}-${s.end}]`);
   },
 });
-const help = e8.defineCommand({ name: "magit-info", doc: "Show what Magit's keys do.", run: () => e8.call("describe-mode") });
+// The manual and the version, after magit-mode.el's magit-info and magit.el's magit-version.
+
+e8.defineVariable({ name: "magit-manual-url", doc: "Where Magit's manual is on the web, which magit-info opens while E8 has no Info reader.", value: "https://magit.vc/manual/magit/" });
+
+/**
+ * Visits the Magit manual, as magit-info: in Info if E8 has an Info reader,
+ * else the manual on the web, with browse-url if there is one, else with
+ * the system's opener (open, xdg-open), saying where it is.
+ */
+export function magitInfo(): void {
+  if (e8.fboundp("info")) return void e8.funcall("info", "magit");
+  const url = String(e8.variable("magit-manual-url"));
+  if (e8.fboundp("browse-url")) return void e8.funcall("browse-url", url);
+  if (!truthy(e8.variable("noninteractive"))) {
+    const opener = e8.callProcess(["uname", "-s"]).output.trim() === "Darwin" ? "open" : "xdg-open";
+    e8.makeProcess({ name: "magit-info", command: [opener, url] });
+  }
+  e8.message(`The Magit manual is at ${url}`);
+}
+const help = e8.defineCommand({ name: "magit-info", doc: "Visit the Magit manual.", run: () => magitInfo() });
+
+/** The directory Magit's package was loaded from: the first in load-path holding magit.ts, as locate-library finds magit.el. */
+function magitPackageDirectory(): string | undefined {
+  const path = (e8.variable("load-path") as string[] | null) ?? [];
+  return path.map((d) => e8.fileNameAsDirectory(e8.expandFileName(String(d)))).find((d) => e8.fileExistsP(`${d}magit.ts`));
+}
+
+/** The system's type, as Emacs's system-type names it. */
+function systemType(): string {
+  const uname = e8.callProcess(["uname", "-s"]).output.trim();
+  return uname === "Darwin" ? "darwin" : uname === "Linux" ? "gnu/linux" : uname.toLowerCase();
+}
+
+/**
+ * The version of Magit in use, as magit-version: git describe in its
+ * package directory if that is Magit's repository, as a package installed
+ * from git is, else the version e8-package.json gives, else the version a
+ * directory named magit-VERSION says. Undefined, with a message, if none.
+ * With PRINT, also says the versions of Magit, Git and E8, and the system.
+ */
+export function magitVersion(print = false): string | undefined {
+  const dir = magitPackageDirectory();
+  let version: string | undefined;
+  if (dir) {
+    if (e8.fileExistsP(`${dir}.git`)) {
+      const r = e8.callProcess(["git", "describe", "--tags", "--dirty", "--always"], { directory: dir });
+      if (r.exit === 0) version = r.output.trim();
+    }
+    if (!version && e8.fileExistsP(`${dir}e8-package.json`)) {
+      try {
+        const v = (JSON.parse(e8.readTextFile(`${dir}e8-package.json`)) as { version?: unknown }).version;
+        if (typeof v === "string") version = v;
+      } catch {
+        // A manifest that does not parse has no version.
+      }
+    }
+    if (!version) version = /^(?:e8-)?magit-([0-9].*)$/.exec(e8.fileNameNondirectory(e8.directoryFileName(dir)))?.[1];
+  }
+  if (!version) {
+    if (e8.getenv("CI") !== "true") e8.message(`Cannot determine Magit's version ${JSON.stringify(dir ?? null)}`);
+    return undefined;
+  }
+  if (print) e8.message(magitVersionString(version));
+  return version;
+}
+
+/** What magit-version prints: the versions of Magit, Git and E8, and the system, as Magit's names Magit, Transient, Git and Emacs; Transient ships with E8. */
+const magitVersionString = (version: string): string => {
+  let git = "(unknown)";
+  try {
+    git = magitGitVersion();
+  } catch {
+    // No git.
+  }
+  return `Magit ${version}, Git ${git}, E8 ${String(e8.variable("e8-version"))}, ${systemType()}`;
+};
+
+export const magitVersionCommand = e8.defineCommand({
+  name: "magit-version",
+  doc: "Show the version of Magit currently in use, with the versions of Git and E8, and put it in the kill ring.  With a prefix argument insert it into the current buffer instead.",
+  params: [{ name: "here", kind: "prefix" }],
+  run: (here: e8.Value) => {
+    const version = magitVersion();
+    if (version === undefined) return;
+    const text = magitVersionString(version);
+    e8.killNew(text);
+    if (truthy(here)) e8.insert(text);
+    else e8.message(text);
+  },
+});
 
 // Running git and shell commands, after magit.el's magit-run.
 
@@ -1503,9 +1458,9 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
     {
       description: "Applying changes",
       items: [
-        { items: [["a", "Apply", notYet("magit-apply", "Applying a change from elsewhere")], ["v", "Reverse", notYet("magit-reverse", "Reversing a change")], ["k", "Discard", magitDiscard]] },
-        { items: [["s", "Stage", magitStage], ["u", "Unstage", magitUnstage]] },
-        { items: [["S", "Stage all", stageModified], ["U", "Unstage all", unstageAll]] },
+        { items: [["a", "Apply", magitApplyCommand], ["v", "Reverse", magitReverseCommand], ["k", "Discard", magitDiscardCommand]] },
+        { items: [["s", "Stage", magitStageCommand], ["u", "Unstage", magitUnstageCommand]] },
+        { items: [["S", "Stage all", magitStageModifiedCommand], ["U", "Unstage all", magitUnstageAllCommand]] },
       ],
     },
     {
@@ -1515,7 +1470,7 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
           padKeys: true,
           items: [
             ["g", "Refresh current buffer", refreshCommand],
-            ["q", "Bury current buffer", "quit-window"],
+            ["q", "Bury current buffer", magitModeBuryBuffer],
             ["<tab>", "Toggle section at point", "magit-section-toggle"],
             ["<return>", "Visit thing at point", magitVisitThing],
           ],
@@ -1527,11 +1482,11 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
 });
 
 const bindings: [string, e8.DefinedCommand | string][] = [
-  ["s", magitStage],
-  ["S", stageModified],
-  ["u", magitUnstage],
-  ["U", unstageAll],
-  ["k", magitDiscard],
+  ["s", magitStageFilesCommand],
+  ["S", magitStageModifiedCommand],
+  ["u", magitUnstageFilesCommand],
+  ["U", magitUnstageAllCommand],
+  ["k", magitDeleteThing],
   ["RET", magitVisitThing],
   ["g", refreshCommand],
   ["G", refreshAllCommand],
@@ -1542,6 +1497,7 @@ const bindings: [string, e8.DefinedCommand | string][] = [
   ["F", pullMenu],
   ["f", fetchMenu],
   ["m", mergeMenu],
+  ["x", magitResetQuicklyCommand],
   ["X", resetMenu],
   ["z", stashMenu],
   ["r", magitRebase],
@@ -1570,7 +1526,7 @@ const bindings: [string, e8.DefinedCommand | string][] = [
   ["d", diffMenu],
   ["h", dispatch],
   ["?", dispatch],
-  ["q", "quit-window"],
+  ["q", magitModeBuryBuffer],
 ];
 for (const [key, command] of bindings) e8.defineKey("magit-mode-map", key, command as e8.DefinedCommand);
 

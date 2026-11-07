@@ -14,7 +14,7 @@
 ;; ~/.emacs.d/elpaca/builds, each in a directory of its own name.  It was
 ;; recorded with Magit 4.4.0 in Emacs 30.
 ;;
-;; Two recordings:
+;; Three recordings:
 ;;
 ;; - test/menus.json: the menu each prefix key shows in the status buffer
 ;;   of the basic fixture, which magit-the-menus-show-as-magits-do
@@ -26,6 +26,10 @@
 ;;   the faces of that text as runs, and point's line.  The tests type
 ;;   the same keys in E8 and compare.  E8_ORACLE_ONLY=STRING records only
 ;;   the cases whose names have STRING.
+;;
+;; - test/oracle/git-commit-faces.json: the faces git-commit-setup gives
+;;   test/oracle/git-commit-message.txt as a COMMIT_EDITMSG, which
+;;   git-commit-faces-are-magits compares E8's with.
 
 (require 'json)
 (defvar mr-builds (file-name-as-directory (or (getenv "E8_ELPA_BUILDS") (expand-file-name "~/.emacs.d/elpaca/builds"))))
@@ -129,3 +133,123 @@
   (with-temp-file (expand-file-name "menus.json" mr-dir)
     (insert (json-encode (nreverse mr-menus)))
     (json-pretty-print-buffer)))
+
+;; test/oracle/git-commit-faces.json: the faces git-commit-setup gives
+;; test/oracle/git-commit-message.txt, visited as a repository's
+;; .git/COMMIT_EDITMSG, which git-commit-tests compares E8's with.
+(let ((only (getenv "E8_ORACLE_ONLY")))
+  (when (or (null only) (string-match-p (regexp-quote only) "git-commit-faces"))
+    (let* ((dir (mr-fixture "basic"))
+           (repo (expand-file-name "repo/" dir))
+           (default-directory repo)
+           (file (expand-file-name ".git/COMMIT_EDITMSG" repo)))
+      (message "Recording git-commit-faces")
+      (copy-file (expand-file-name "oracle/git-commit-message.txt" mr-dir) file t)
+      (with-current-buffer (find-file-noselect file)
+        (font-lock-ensure)
+        (let ((result (mr-buffer)))
+          (with-temp-file (expand-file-name "oracle/git-commit-faces.json" mr-dir)
+            (insert (json-encode result))
+            (json-pretty-print-buffer)
+            (goto-char (point-max))
+            (insert "\n")))
+        (set-buffer-modified-p nil)
+        (let ((kill-buffer-query-functions nil)) (kill-buffer)))
+      (delete-directory dir t))))
+
+;; test/oracle/blame.json: the overlays Magit's blame puts on file.txt of
+;; the blame fixture, in each style in turn, magit-blame-styles having
+;; the margin style its docstring gives besides the default three: for
+;; each overlay its kind, its line and what it shows, the heading's
+;; before-string, the highlight's face, or the margin's string, as text
+;; and face runs.  Then the same for magit-blame-removal and
+;; magit-blame-reverse of Alice's blob.  Times are shown in UTC.
+
+(defun mr-string (s)
+  "S as text and face runs: START-END FACES, the faces its font-lock-face names."
+  (let ((runs nil) (i 0))
+    (while (< i (length s))
+      (let ((next (next-single-property-change i 'font-lock-face s (length s)))
+            (f (mr-face-name (get-text-property i 'font-lock-face s))))
+        (when f (push (format "%d-%d %s" i next f) runs))
+        (setq i next)))
+    `((text . ,(substring-no-properties s)) (faces . ,(vconcat (nreverse runs))))))
+
+(defun mr-blame-overlays ()
+  "The blame overlays of the current buffer, by start and kind."
+  (let (out)
+    (dolist (ov (overlays-in (point-min) (point-max)))
+      (when (overlay-get ov 'magit-blame-chunk)
+        (let ((line (line-number-at-pos (overlay-start ov)))
+              (before (overlay-get ov 'before-string)))
+          (push
+           (cond ((overlay-get ov 'magit-blame-heading)
+                  `((kind . "heading") (line . ,line) (before . ,(and before (mr-string before)))))
+                 ((overlay-get ov 'magit-blame-margin)
+                  `((kind . "margin") (line . ,line)
+                    (margin . ,(and before (mr-string (cadr (get-text-property 0 'display before)))))))
+                 ((overlay-get ov 'magit-blame-highlight)
+                  `((kind . "highlight") (line . ,line) (face . ,(mr-face-name (overlay-get ov 'font-lock-face)))))
+                 (t `((kind . "other") (line . ,line))))
+           out))))
+    (vconcat (sort out (lambda (a b)
+                         (let ((la (alist-get 'line a)) (lb (alist-get 'line b)))
+                           (if (= la lb)
+                               (string< (alist-get 'kind a) (alist-get 'kind b))
+                             (< la lb))))))))
+
+(defun mr-blame-wait ()
+  (let ((n 0))
+    (while (and magit-blame-process (< (setq n (1+ n)) 400))
+      (accept-process-output nil 0.05))))
+
+(when (or (null (getenv "E8_ORACLE_ONLY")) (string-match-p "blame" (getenv "E8_ORACLE_ONLY")))
+  (set-time-zone-rule t)
+  (let* ((dir (mr-fixture "blame"))
+         (repo (expand-file-name "repo/" dir))
+         (default-directory repo)
+         (magit-blame-styles
+          (append magit-blame-styles
+                  '((margin
+                     (margin-format    . (" %s%f" " %C %a" " %H"))
+                     (margin-width     . 42)
+                     (margin-face      . magit-blame-margin)
+                     (margin-body-face . (magit-blame-dimmed))))))
+         (result nil))
+    (message "Recording blame")
+    (with-current-buffer (find-file-noselect (expand-file-name "file.txt" repo))
+      (switch-to-buffer (current-buffer))
+      (call-interactively #'magit-blame-addition)
+      (mr-blame-wait)
+      (dolist (style '("headings" "highlight" "lines" "margin"))
+        (push (cons style (mr-blame-overlays)) result)
+        (magit-blame-cycle-style))
+      (push (cons "chunk-starts"
+                  (let (starts (last -1))
+                    (goto-char (point-min))
+                    (while (/= last (point))
+                      (setq last (point))
+                      (magit-blame-next-chunk)
+                      (unless (= last (point)) (push (line-number-at-pos) starts)))
+                    (vconcat (nreverse starts))))
+            result)
+      (magit-blame-quit)
+      (push (cons "after-quit" (mr-blame-overlays)) result))
+    (let ((alice (magit-rev-parse "HEAD~2")))
+      (dolist (type '(("removal" . magit-blame-removal) ("reverse" . magit-blame-reverse)))
+        (with-current-buffer (magit-find-file-noselect alice "file.txt")
+          (switch-to-buffer (current-buffer))
+          (call-interactively (cdr type))
+          (mr-blame-wait)
+          (push (cons (car type) (mr-blame-overlays)) result)
+          (magit-blame-quit)
+          (kill-buffer))))
+    (with-temp-file (expand-file-name "oracle/blame.json" mr-dir)
+      (insert (json-encode (nreverse result)))
+      (json-pretty-print-buffer)
+      (goto-char (point-max))
+      (insert "\n"))
+    (dolist (b (buffer-list))
+      (when (buffer-file-name b) (with-current-buffer b (set-buffer-modified-p nil)) (kill-buffer b)))
+    (delete-directory dir t))
+  (set-time-zone-rule nil))

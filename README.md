@@ -2,7 +2,7 @@
 
 Git in a status buffer of sections, for [E8](https://github.com/e8-editor/e8): `C-x g` shows the repository, and single keys stage, unstage, discard, commit, branch, push, pull, rebase and stash, with Magit's menus. A port of [Magit](https://github.com/magit/magit) 4.4.0.
 
-**This is a subset of Magit.** The status buffer, staging, committing, branching, pushing and pulling, the log, diffs, stashing and interactive rebasing work, and every menu shows what Magit's does; but blame and ediff are not there, and many of the log's and diff's options do nothing yet. [What works](#what-works) and [what is missing](#what-is-missing) below say which, and [docs/plan.md](docs/plan.md) is the plan for porting the rest, step by step. Its versions start at v0.1.0.
+**This is a subset of Magit.** The status buffer, staging, committing, branching, pushing and pulling, the log, diffs, stashing and interactive rebasing work, and every menu shows what Magit's does; but ediff is not there, and many of the log's and diff's options do nothing yet. [What works](#what-works) and [what is missing](#what-is-missing) below say which, and [docs/plan.md](docs/plan.md) is the plan for porting the rest, step by step. Its versions start at v0.1.0.
 
 ## Installing
 
@@ -16,21 +16,24 @@ E8 installs it at its newest version tag into `repos/` beside `init.ts`, with [e
 
 ## Using it
 
-`C-x g` (`magit-status`, or `M-x magit`) in a file or directory of a repository shows its status; outside one it offers to make one. `C-x M-g` opens the dispatch menu from anywhere. In Magit's buffers:
+`C-x g` (`magit-status`, or `M-x magit`) in a file or directory of a repository shows its status; outside one, or with `C-u`, it reads one of the repositories `magit-repository-directories` finds, or any directory with `C-u C-u`, and offers to make one there if it is none. `C-x M-g` opens the dispatch menu from anywhere. In Magit's buffers:
 
 | Key | Does |
 | --- | --- |
 | `TAB`, `C-<tab>`, `<backtab>` | hide and show the section at point, cycle it, cycle them all |
 | `n`, `p`, `M-n`, `M-p`, `^` | the next, previous, sibling and parent section |
 | `1` to `4` | show the sections to that level |
-| `s`, `u` | stage, unstage the file, hunk or section at point; with a region in a hunk, just its lines |
-| `S`, `U` | stage all changes to tracked files (untracked ones too with `C-u`), unstage everything |
-| `k` | discard the file, hunk or section at point, after asking; an untracked file is deleted |
+| `s`, `u` | stage, unstage the file, hunk or section at point, or the files or hunks the region selects; with a region in a hunk, just its lines; elsewhere, files read with completion; `C-u s` on an untracked file stages its name only (intent to add); `u` on a committed change reverses it in the index |
+| `S`, `U` | stage all changes to tracked files (untracked ones too with `C-u`), unstage everything, asking first as Magit does unless `magit-no-confirm` says not to |
+| `k` | discard the file, hunk, lines or section at point, after asking: an untracked file or directory is deleted (to the trash with `magit-delete-by-moving-to-trash`), a new file deleted, a rename undone, a conflicted file resolved to a side asked for, and a conflict's hunk resolved to the side point is in |
+| `a`, `v` | apply the change at point (a hunk, file or lines from a commit's, stash's or diff's buffer) to the worktree, or reverse it; with `C-u`, a 3-way merge |
+| `C-c ^ RET`, `u`, `b`, `l`, `a` | on a conflict's hunk, keep the side point is in, the upper, base or lower version, or all of them |
+| `x` | reset HEAD and the index to a commit read, the worktree too with `C-u` |
 | `RET` | visit the file at point, on the hunk's line, or show the commit or stash at point |
 | `g`, `G` | refresh this buffer, or all of the repository's |
 | `$` | the git commands run and their output |
-| `q` | bury the buffer |
-| `h`, `?` | the dispatch menu |
+| `q` | bury the buffer, as `magit-bury-buffer-function` says; `C-u q` kills it, `C-u C-u q` kills all the repository's Magit buffers |
+| `h`, `?` | the dispatch menu, whose `h` opens the manual (`magit-info`) |
 | `c`, `b`, `P`, `F`, `f`, `m`, `r`, `X`, `z`, `l`, `d` | the commit, branch, push, pull, fetch, merge, rebase, reset, stash, log and diff menus |
 | `A`, `V`, `w` | the cherry-pick, revert and apply-patches (git am) menus |
 | `t`, `M`, `!`, `C`, `I`, `Q` | the tag, remote and run menus, clone, init, and a git command |
@@ -38,17 +41,18 @@ E8 installs it at its newest version tag into `repos/` beside `init.ts`, with [e
 
 Commit messages are written in a `COMMIT_EDITMSG` buffer in `git-commit-mode`, and an interactive rebase's todo list in `git-rebase-mode`; `C-c C-c` finishes and `C-c C-k` gives up. git runs E8 as its editor for them through with-editor, so git's own template and hooks apply.
 
-Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (how many recent commits the status shows, 10), `magit-save-repository-buffers` (save the repository's file buffers before running git), `git-commit-summary-max-length` (68), and `magit-section-initial-visibility-alist` from e8-magit-section.
+Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (how many recent commits the status shows, 10), `magit-save-repository-buffers` (save the repository's file buffers before running git), `git-commit-summary-max-length` (68) and the other `git-commit-` options, and `magit-section-initial-visibility-alist` from e8-magit-section.
 
 ## What works
 
 - **The status buffer**: the branch and its upstream (`Merge:` or `Rebase:`), push remote and tag; untracked files, unstaged and staged changes as diffs of files and hunks; stashes; the commits not pushed and not pulled; and the recent commits.
-- **Applying**: `s`, `u` and `k` on a file, a hunk, the lines of a region in a hunk, or a whole section; `S` and `U`.
+- **Applying**, as magit-apply.el: `s`, `u`, `k`, `a` and `v` on a file, the files or hunks of a region, a hunk, the lines of a region in a hunk, or a whole section, in the status buffer and in diff, commit and stash buffers; staging untracked directories and intent to add; `magit-stage-files` and `magit-unstage-files` with completion; `S` and `U`; `magit-reverse-in-index`; discarding by what git status says of each file (resolving a conflict with `magit-checkout-stage`, bringing back a deleted file, deleting a new one, undoing a rename); `magit-smerge-keep-*` on a conflict's hunk; `magit-post-stage-hook` and `magit-post-unstage-hook`; `magit-reset-quickly` (`x`).
 - **Commit** (`c`): commit, extend, amend, reword, fixup, squash, alter, augment, revise, and instant fixup and squash, with the commit's diff shown beside the message.
 - **Branch** (`b`): checkout, create, spin off and spin out, rename, reset and delete, and the branch's and repository's configuration.
 - **Push** (`P`), **pull** (`F`) and **fetch** (`f`): to and from the push remote, the upstream (set when there is none) or elsewhere, refspecs, matching branches and tags.
 - **Merge** (`m`): merge, with or without editing the message or committing, absorb, preview, squash and dissolve.
 - **Rebase** (`r`): onto the upstream, the push remote or elsewhere, a subset, interactively, to edit, reword or remove a commit, or autosquash, from the commit at point or one selected in a log, asking before rewriting published commits, and continue, skip, edit or abort one going on.
+- **Commit messages** in `git-commit-mode`, as git-commit.el's, on `git-commit-major-mode` (`text-mode`): the summary, its part past `git-commit-summary-max-length`, a second line that is not empty, `[keywords]`, trailers and git's comments highlighted as Magit does; `M-p` and `M-n` go through the messages written before, a canceled one among them, `C-c M-p` and `C-c M-n` search them and `C-c M-s` saves one; `C-c C-i` inserts a trailer from a menu, and `C-c C-s`, `C-c C-a`, `C-c C-r`, `C-c C-t`, `C-c C-m`, `C-c C-o`, `C-c C-p` and `C-c M-i` sign off, ack, review, test, modify, cc, report and suggest (yours, or with `C-u` someone's read); finishing asks about a summary too long or a second line not empty, as `git-commit-style-convention-checks` says, and runs `git-commit-post-finish-hook` once git has made the commit; Auto Fill is on but in the summary, and `git-commit-turn-on-flyspell` checks the spelling.
 - **The todo list** in `git-rebase-mode`, as git-rebase.el's: `c`, `r`, `e`, `s`, `S`, `f`, `F` and `d` set the action of the line or the region's lines, `k` comments a line out or in, `M-p` and `M-n` move lines, `x`, `l`, `t`, `u`, `M M`, `b`, `z` and `y` add exec, label, reset, update-ref, merge, break, noop and pick lines, `RET` and `SPC` show the commit, and the instructions name these keys.
 - **Cherry-pick** (`A`): pick or apply commits here, harvest them from another branch, donate them to one, or spin them out or off to a new branch; **revert** (`V`) with or without committing; **apply patches** (`w`) from files or a maildir; and continue, skip or abort a sequence going on.
 - **Reset** (`X`): mixed, soft, hard, keep, the index or the worktree only, a branch, or a file.
@@ -63,13 +67,32 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - **Ignoring** (`i`): at the top, in a subdirectory, privately or for all repositories; skip-worktree and assume-unchanged. **Notes** (`T`): edit, remove, merge and prune, and the notes refs. **Patches** (`W`): create with git format-patch and its options, apply, save a diff. **Bisect** (`B`): start, good, bad, mark, skip, run a script, reset, with the bisect sections in the status buffer.
 - **Worktrees** (`Z`): check out, branch, move, delete, visit, and their sections. **Submodules** (`o`): add, register, populate, update, synchronize, unpopulate, remove, list, and the module sections. **Subtrees** (`O`): import (add, merge, pull) and export (push, split).
 - **Files** (`C-c M-g` in a file's buffer): stage, unstage, untrack, rename, delete and check out the file, diff, log and trace it, and visit it at a revision (`magit-find-file`), in the index, or step through its revisions with `n` and `p` in `magit-blob-mode`; `magit-update-index` writes the index's version back; `K` and `R` untrack and rename in Magit buffers.
+- **Repositories** (`M-x magit-list-repositories`): the repositories `magit-repository-directories` names, found to the depth it gives, a line each with the columns of `magit-repolist-columns` (name, version, commits to pull and push, path; the branch, upstream, flags, stashes and branches columns are there to add), sorted by `magit-repolist-sort-key`; `RET` shows a repository's status, `m` and `u` mark and unmark, `f` fetches the marked ones, or all after asking, and `5` visits a file in each in a frame of its own.
+- **Sparse checkouts** (`M-x magit-sparse-checkout`, which Magit binds to no key either), in cone mode: enable (with `--sparse-index`), set or add the directories included, read with completion and separated by commas, reapply the rules, disable; `magit-sparse-checkout-insert-header` in `magit-status-headers-hook` says what the checkout includes.
+- **Showing and burying buffers**: `magit-display-buffer-function` is `magit-display-buffer-traditional` or any of Magit's alternatives (`-same-window-except-diff-v1`, `-fullframe-status-v1`, `-fullframe-status-topleft-v1`, `-fullcolumn-most-v1`), `display-buffer`, or a function of a config's; `magit-display-buffer-noselect`, and `magit-pre-display-buffer-hook` and `-post-display-buffer-hook` around it, saving the window configuration and noting a window made for Magit. `magit-bury-buffer-function` is `magit-mode-quit-window`, which deletes a window made for Magit with its last Magit buffer, `quit-window`, or `magit-restore-window-configuration`.
+- **Refreshing**: `magit-pre-refresh-hook` and `magit-post-refresh-hook` around `magit-refresh`, `magit-refresh-buffer-hook` after each buffer, `magit-refresh-status-buffer`, and `magit-refresh-verbose` (`M-x magit-toggle-verbose-refresh`) timing each buffer, hook function and refresh, with the refresh cache's hits.
+- **`magit-version`**: git describe of the package's own repository, as `e8.usePackage` installs it, else the version its `e8-package.json` gives; the message has Git's and E8's versions and the system, and goes into the kill ring, or with `C-u` into the buffer.
+- **Blame** (`C-c M-g b`, `B` for the menu, `r` and `f` in a blob for removals and in reverse, `m` to echo): each chunk of lines as overlays, a heading with its author, date and summary, a highlighted first line or a thin line, or the left margin, as `magit-blame-styles` says (`c` cycles them); `n`, `p`, `N` and `P` move between chunks, `b` blames the revision before the chunk's, `RET` and `SPC` show its commit, `M-w` copies its hash and `q` quits. `magit-edit-line-commit` (`C-c M-g e`) and `magit-diff-edit-hunk-commit` (`C-c C-e` on a hunk) edit the commit that added the line.
 - From the dispatch menu, cherries, one command.
+- **Dired** (magit-dired.el): `M-TAB` in Magit's buffers, and `C-x C-j` in the status buffer, lists the directory of the file at point in Dired with point on it (`magit-dired-jump`); `&` on a file or hunk runs a shell command on its file in the background (`magit-do-async-shell-command`); in Dired, `magit-dired-stage`, `magit-dired-unstage` and `magit-dired-log` act on the marked files (`C-c M-g s`, `u`, `l` there), and `magit-dired-am-apply-patches` applies them with git am.
+- **Reverting buffers** (magit-autorevert.el): `magit-auto-revert-mode`, on unless E8 runs in batch or `global-auto-revert-mode` is on, turns on `auto-revert-mode` in buffers visiting tracked files, and the repository's unmodified buffers whose files git changed are reverted as each git command Magit runs ends (`magit-auto-revert-buffers` on `magit-post-refresh-hook`, as `magit-auto-revert-immediately` says).
+- **Bookmark records** (magit-bookmark.el): Magit's buffers set `bookmark-make-record-function` to `magit--make-bookmark`, which records a status, diff, revision, stash, log, cherry, reflog, references or stashes buffer's repository, mode, arguments and hidden sections under Magit's name for it (`magit-log(main -- a.txt)`), and `magit--handle-bookmark` makes the buffer again from the record.
+- **Work-in-progress refs** (magit-wip.el): `magit-wip-mode` commits snapshots of the index and the worktree to `refs/wip/index/refs/heads/BRANCH` and `refs/wip/wtree/refs/heads/BRANCH` after a tracked file is saved, before and after staging, unstaging, discarding and resetting, and before a file is first saved, through the four modes it turns on, which can be used alone; `z r` (`magit-wip-commit`) commits on demand; `magit-wip-log-current` and `magit-wip-log` show a branch with its wip refs, `l i` and `l w` (shown while a wip mode is on) the wip refs alone; `magit-wip-purge` deletes those whose branch is gone.
+- **Extras** (magit-extras.el): `C-w` (`magit-copy-section-value`) copies the value of the section at point, a commit's, branch's or tag's revision going on the revision stack too (with a prefix argument, a branch's name; with a region in a hunk, only its added or removed lines); `M-w` (`magit-copy-buffer-revision`) the revision the buffer shows; `C-c C-w` in a commit message (`magit-pop-revision-stack`) inserts the last revision saved, as `magit-pop-revision-stack-format` says. `magit-abort-dwim` aborts the merge, rebase, git am, cherry-pick, revert or bisect going on; `magit-reshelve-since` (Magit's `r t`, at level 6) changes the dates of the commits since one selected; `magit-clean` removes untracked files; `magit-project-status` is `m` in `C-x p` and `C-x p p`; `magit-run-git-gui-blame`; `magit-display-repository-buffer` and `magit-switch-to-repository-buffer`; and in Magit's buffers `next-line`, `previous-line` and `back-to-indentation` are Magit's, selecting one line of a hunk with the first shifted move.
 
 ## What is missing
 
-- **Not there at all**: blame; ediff; applying or reversing a change from elsewhere (`a`, `v`). Their keys in the menus say so.
+- **Not there at all**: ediff. Its keys in the menus say so.
+- **Applying**: E8 has no smerge-mode, so the `magit-smerge-keep-*` commands keep a side with smerge's rules ported into magit-apply.ts, and do not start smerge-mode in a buffer still conflicted; E8 has no `completing-read-multiple`, so `magit-stage-files` and `magit-unstage-files` complete one name and take several separated by commas; the wip modes, which magit-apply.el commits to, are not there yet (step 14); a nested repository among untracked files is left alone, as Magit leaves it without borg; and the stash buffer's Staged and Unstaged parts are not the `stashed-index` and `stashed-worktree` sections Magit applies whole.
 - Suffixes Magit puts above level 4 (signing, `--exec`, a rebase's strategy, some of clone's) are left out of the menus until E8's transient has levels (E8 0.5).
 - Only programs E8 starts can use E8 as their editor (see e8-with-editor).
+- The repository list does not turn on `hl-line-mode`, which E8 lacks, nor give Imenu its entries.
+- `magit-info` (`h h`, `C-x i` in the dispatch menu) cannot show Magit's Info manual, as E8 has no Info reader: it opens the manual on the web, `magit-manual-url`, with `browse-url` if E8 has it or else the system's `open` or `xdg-open`, and says where it is. `magit-version` leaves Transient out, which ships with E8.
+- Blame: the `-M` and `-C` arguments cannot be given without a number, as transient's `:allow-empty`; the lines style's separator is as tall as E8 draws a `(space :height (2))`; the quickstart blames the lines shown first only once a window has drawn them; `magit-blame-put-keymap-before-view-mode` is left out, as E8 has no view-mode; and read-only-mode, which has no hook in E8, is advised to toggle blame's keys.
+- **Bookmarks of Magit buffers** cannot be set or jumped to yet: E8's bookmark.ts records only a file and a position, without calling `bookmark-make-record-function` or jumping through a record's handler, so `C-x r m` in a Magit buffer bookmarks no file. The records and handler are ready for when it does.
+- E8 has no file notification, so a buffer whose file git changes outside Magit, from a shell say, is reverted only after `auto-revert-interval` seconds, or when Magit next runs git or refreshes; Magit's reverting after its own commands works as with notification.
+- With `magit-wip-merge-branch`, a commit made in `COMMIT_EDITMSG` is not followed by a wip commit (`magit-wip-maybe-add-commit-hook`). Saving the repository's buffers before git runs makes a wip commit for each, where Magit makes one for all.
+- `magit-generate-changelog` and `magit-add-change-log-entry` (`C-x a`, `C-x 4 a` on a hunk): E8 has no add-log.el or `diff-add-log-current-defuns` for them to build on.
 
 ## Credit
 
