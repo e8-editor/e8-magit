@@ -206,7 +206,9 @@ export function magitSetAll(values: string[], ...keys: string[]): void {
 
 /** The repository's top directory, with a slash, for DIRECTORY or default-directory, as magit-toplevel. */
 export function magitToplevel(directory?: string): string | undefined {
-  const dir = e8.expandFileName(directory ?? defaultDirectory());
+  // The nearest directory that exists, as magit--with-safe-default-directory.
+  let dir = e8.expandFileName(directory ?? defaultDirectory());
+  while (!e8.fileDirectoryP(dir) && e8.fileNameDirectory(e8.directoryFileName(dir)) !== dir) dir = e8.fileNameDirectory(e8.directoryFileName(dir)) ?? "/";
   return magitWithCache(`${dir}\0toplevel`, () => {
     const r = e8.callProcess([magitGitExecutable(), "rev-parse", "--show-toplevel"], { directory: dir });
     if (r.exit === 0 && r.output.trim() !== "") return e8.fileNameAsDirectory(r.output.trim());

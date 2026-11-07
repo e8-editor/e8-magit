@@ -31,7 +31,7 @@
 import { currentSection, insertHeading, insertRoot, insertSection, magitSectionMode, sectionAt, sections, show, type Section } from "magit-section";
 import { transientArgs, transientDefinePrefix, type Group } from "transient";
 import { forwardLine, PerBuffer, truthy } from "subr";
-import { magitCompletingRead } from "magit-base";
+import { magitCompletingRead, prefixArgP } from "magit-base";
 import {
   magitFormatRefLabels,
   magitGetCurrentBranch,
@@ -78,11 +78,15 @@ import {
   magitStashShow,
   type FileValue,
 } from "magit-diff";
-import { magitStatus } from "magit-status";
+import { magitInitCommand, magitStatus } from "magit-status";
 import "magit-log";
 import "git-rebase";
-import { magitAm, magitCherryPick, magitRebase, magitRevert } from "magit-sequence";
-import { magitProcessBufferCommand, magitRunGit, magitRunGitWithInput, magitStartGitWith } from "magit-process";
+import { magitAm, magitCherryApply, magitCherryPick, magitRebase, magitRevert, magitRevertNoCommit } from "magit-sequence";
+import { magitTag } from "magit-tag";
+import { magitRemote } from "magit-remote";
+import { magitClone } from "magit-clone";
+import { magitGitMergetool, magitRunGitGui, magitRunGitk, magitRunGitkAll, magitRunGitkBranches } from "magit-extras";
+import { magitProcessBuffer, magitProcessBufferCommand, magitRunGit, magitRunGitWithInput, magitStartGitWith, magitStartProcess } from "magit-process";
 
 // Faces.
 
@@ -1357,15 +1361,6 @@ const stashMenu = transientDefinePrefix("magit-stash", {
 
 // The other menus and commands the dispatch menu names.
 
-const tagCreate = e8.defineCommand({
-  name: "magit-tag-create",
-  doc: "Create a tag at the commit at point, or one read.",
-  run: () => {
-    const name = e8.readString("Tag name: ");
-    if (name === "") e8.userError("No name given");
-    runGit(["tag", name, readCommit(`Place ${name} on`)]);
-  },
-});
 const gitignore = e8.defineCommand({
   name: "magit-gitignore-in-topdir",
   doc: "Add a file or pattern to the .gitignore at the top of the repository.",
@@ -1378,34 +1373,6 @@ const gitignore = e8.defineCommand({
     const old = e8.fileExists(file) ? e8.readTextFile(file) : "";
     e8.writeTextFile(file, `${old}${old && !old.endsWith("\n") ? "\n" : ""}${pattern}\n`);
     refreshAll();
-  },
-});
-const gitInit = e8.defineCommand({
-  name: "magit-init",
-  doc: "Create a Git repository in a directory read.",
-  run: () => {
-    const dir = e8.readFileName("Create repository in: ", { dir: String(e8.variable("default-directory")) });
-    e8.callProcess([magitGitExecutable(), "init", e8.expandFileName(dir)]);
-    e8.letBind({ "default-directory": e8.fileNameAsDirectory(e8.expandFileName(dir)) }, () => e8.call(magitStatus));
-  },
-});
-const gitClone = e8.defineCommand({
-  name: "magit-clone",
-  doc: "Clone a repository from a URL read into a directory read.",
-  run: () => {
-    const url = e8.readString("Clone repository: ");
-    const dir = e8.readFileName("Clone to: ", { dir: String(e8.variable("default-directory")), initial: url.replace(/\.git$/, "").replace(/.*[/:]/, "") });
-    const r = e8.callProcess([magitGitExecutable(), "clone", url, e8.expandFileName(dir)]);
-    if (r.exit !== 0) e8.userError(r.output.trim());
-    e8.letBind({ "default-directory": e8.fileNameAsDirectory(e8.expandFileName(dir)) }, () => e8.call(magitStatus));
-  },
-});
-const gitRun = e8.defineCommand({
-  name: "magit-git-command",
-  doc: "Run git with arguments read, as ! ! does.",
-  run: () => {
-    const args = e8.readString("Run git: ");
-    runGit(args.split(/\s+/).filter(Boolean));
   },
 });
 const showRefs = e8.defineCommand({
@@ -1437,15 +1404,6 @@ const showRefs = e8.defineCommand({
   },
 });
 const cherries = "magit-cherry";
-const remoteAdd = e8.defineCommand({
-  name: "magit-remote-add",
-  doc: "Add a remote, by a name and URL read.",
-  run: () => {
-    const name = e8.readString("Remote name: ");
-    const url = e8.readString("Remote url: ");
-    runGit(["remote", "add", name, url]);
-  },
-});
 const formatPatches = e8.defineCommand({
   name: "magit-format-patch",
   doc: "Write the commit at point, or one read, as a patch file.",
@@ -1483,6 +1441,55 @@ const sectionInfo = e8.defineCommand({
 });
 const help = e8.defineCommand({ name: "magit-info", doc: "Show what Magit's keys do.", run: () => e8.call("describe-mode") });
 
+// Running git and shell commands, after magit.el's magit-run.
+
+e8.defineVariable({ name: "magit-shell-command-verbose-prompt", doc: "Whether to show the working directory when reading a command.", value: true });
+
+/** Reads a shell command, in the repository's top with TOPLEVEL or a prefix argument, as magit-read-shell-command; gives it and the directory. */
+function readShellCommand(toplevel: boolean, initial?: string): [string, string] {
+  const dir = toplevel || prefixArgP() ? magitToplevelOrError() : String(e8.variable("default-directory"));
+  const prompt = truthy(e8.variable("magit-shell-command-verbose-prompt")) ? `Async shell command in ${e8.abbreviateFileName(dir)}: ` : "Async shell command: ";
+  return [e8.readString(prompt, { initial, history: "magit-git-command-history" }), dir];
+}
+
+/** Runs COMMAND in a shell in DIRECTORY, showing its output in the process buffer, as magit--shell-command. */
+function shellCommand(command: string, directory: string): void {
+  e8.letBind({ "default-directory": directory }, () => {
+    const shell = String(e8.variable("shell-file-name") ?? e8.getenv("SHELL") ?? "/bin/sh");
+    magitStartProcess(shell, [String(e8.variable("shell-command-switch") ?? "-c"), command], { editor: true, env: { GIT_PAGER: "cat" } });
+    magitProcessBuffer();
+  });
+}
+
+const gitCommandCommand = (name: string, doc: string, toplevel: boolean, initial?: string) =>
+  e8.defineCommand({
+    name,
+    doc,
+    run: () => {
+      const [command, dir] = readShellCommand(toplevel, initial);
+      shellCommand(command, dir);
+    },
+  });
+const magitGitCommand = gitCommandCommand("magit-git-command", "Execute COMMAND asynchronously; display output.  Interactively, prompt for COMMAND in the minibuffer.  \"git \" is used as initial input, but can be deleted to run another command.  With a prefix argument COMMAND is run in the top-level directory of the current working tree, otherwise in default-directory.", false, "git ");
+const magitGitCommandTopdir = gitCommandCommand("magit-git-command-topdir", "Execute COMMAND asynchronously in the top-level directory of the current working tree; display output.", true, "git ");
+const magitShellCommand = gitCommandCommand("magit-shell-command", "Execute COMMAND asynchronously; display output.  With a prefix argument COMMAND is run in the top-level directory of the current working tree, otherwise in default-directory.", false);
+const magitShellCommandTopdir = gitCommandCommand("magit-shell-command-topdir", "Execute COMMAND asynchronously in the top-level directory of the current working tree; display output.", true);
+
+const magitRun = transientDefinePrefix("magit-run", {
+  doc: "Run git or another command, or launch a graphical utility.",
+  groups: [
+    {
+      class: "columns",
+      items: [
+        { description: "Run git subcommand", items: [["!", "in repository root", magitGitCommandTopdir], ["p", "in working directory", magitGitCommand]] },
+        { description: "Run shell command", items: [["s", "in repository root", magitShellCommandTopdir], ["S", "in working directory", magitShellCommand]] },
+        { description: "Launch", items: [["k", "gitk", magitRunGitk], ["a", "gitk --all", magitRunGitkAll], ["b", "gitk --branches", magitRunGitkBranches], ["g", "git gui", magitRunGitGui], ["m", "git mergetool --gui", magitGitMergetool]] },
+      ],
+    },
+  ],
+});
+
+
 const dispatch = transientDefinePrefix("magit-dispatch", {
   doc: "Invoke a Magit command from a list of available commands.",
   groups: [
@@ -1495,7 +1502,7 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
             ["b", "Branch", branchMenu],
             ["B", "Bisect", notYet("magit-bisect", "Bisecting")],
             ["c", "Commit", commitMenu],
-            ["C", "Clone", gitClone],
+            ["C", "Clone", magitClone],
             ["d", "Diff", diffMenu],
             ["D", "Diff (change)", diffMenu],
             ["e", "Ediff (dwim)", notYet("magit-ediff-dwim", "Ediff")],
@@ -1509,23 +1516,23 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
         {
           items: [
             ["i", "Ignore", gitignore],
-            ["I", "Init", gitInit],
+            ["I", "Init", magitInitCommand],
             ["j", "Jump to section", jumpToSection],
             ["J", "Display buffer", displayRepositoryBuffer],
             ["l", "Log", logMenu],
             ["L", "Log (change)", logMenu],
             ["m", "Merge", mergeMenu],
-            ["M", "Remote", remoteAdd],
+            ["M", "Remote", magitRemote],
             ["o", "Submodule", notYet("magit-submodule", "Submodules")],
             ["O", "Subtree", notYet("magit-subtree", "Subtrees")],
             ["P", "Push", pushMenu],
-            ["Q", "Command", gitRun],
+            ["Q", "Command", magitGitCommand],
           ],
         },
         {
           items: [
             ["r", "Rebase", magitRebase],
-            ["t", "Tag", tagCreate],
+            ["t", "Tag", magitTag],
             ["T", "Note", notYet("magit-notes", "Notes")],
             ["V", "Revert", magitRevert],
             ["w", "Apply patches", magitAm],
@@ -1535,7 +1542,7 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
             ["Y", "Cherries", cherries],
             ["z", "Stash", stashMenu],
             ["Z", "Worktree", notYet("magit-worktree", "Worktrees")],
-            ["!", "Run", gitRun],
+            ["!", "Run", magitRun],
           ],
         },
       ],
@@ -1588,6 +1595,14 @@ const bindings: [string, e8.DefinedCommand | string][] = [
   ["A", magitCherryPick],
   ["V", magitRevert],
   ["w", magitAm],
+  ["a", magitCherryApply],
+  ["v", magitRevertNoCommit],
+  ["C", magitClone],
+  ["I", magitInitCommand],
+  ["M", magitRemote],
+  ["Q", magitGitCommand],
+  ["t", magitTag],
+  ["!", magitRun],
   ["l", logMenu],
   ["d", diffMenu],
   ["h", dispatch],
