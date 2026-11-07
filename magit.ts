@@ -80,6 +80,7 @@ import {
 } from "magit-diff";
 import { magitInitCommand, magitStatus } from "magit-status";
 import "magit-log";
+import "magit-bundle";
 import "git-rebase";
 import { magitAm, magitCherryApply, magitCherryPick, magitRebase, magitRevert, magitRevertNoCommit } from "magit-sequence";
 import { magitTag } from "magit-tag";
