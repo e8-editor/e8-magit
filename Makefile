@@ -16,8 +16,8 @@ DEP_DIRS := $(foreach d,$(DEPS),.e8/deps/$(notdir $(firstword $(subst @, ,$(d)))
 .PHONY: test types deps oracle
 
 test: deps
-	$(E8) --batch -L . $(foreach d,$(DEP_DIRS),-L $(d)) $(foreach t,$(TESTS),-l $(t)) -f ert-run-tests-batch-and-exit
-	$(E8) --batch -L . $(foreach d,$(DEP_DIRS),-L $(d)) $(foreach t,$(PROCESS_TESTS),-l $(t)) -f ert-run-tests-batch-and-exit
+	$(E8) --batch -L . -L test $(foreach d,$(DEP_DIRS),-L $(d)) $(foreach t,$(TESTS),-l $(t)) -f ert-run-tests-batch-and-exit
+	$(E8) --batch -L . -L test $(foreach d,$(DEP_DIRS),-L $(d)) $(foreach t,$(PROCESS_TESTS),-l $(t)) -f ert-run-tests-batch-and-exit
 
 types: deps
 	$(E8) --print-types .e8
