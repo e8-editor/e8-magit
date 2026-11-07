@@ -73,7 +73,20 @@ export function magitWithCache<T>(key: string, body: () => T): T {
 
 // Running git.
 
-const defaultDirectory = (): string => String(e8.variable("default-directory") ?? ".");
+const defaultDirectory = (): string => {
+  // In a buffer visiting a file, a default-directory the file is not
+  // under gives way to the file's directory: E8 leaves such a buffer's
+  // default-directory unset, or as the buffer current when it was made,
+  // where Emacs sets it to the file's directory.
+  const file = e8.bufferFileName();
+  let dir = e8.variable("default-directory") as unknown;
+  const under = typeof dir === "string" && dir !== "" && (!file || e8.expandFileName(file).startsWith(e8.fileNameAsDirectory(e8.expandFileName(dir))));
+  if (!under) dir = file ? (e8.fileNameDirectory(file) ?? ".") : ".";
+  // The nearest directory that exists, as magit--safe-default-directory.
+  let d = e8.expandFileName(dir as string);
+  while (!e8.fileDirectoryP(d) && e8.fileNameDirectory(e8.directoryFileName(d)) !== d) d = e8.fileNameDirectory(e8.directoryFileName(d)) ?? "/";
+  return d;
+};
 
 /** The git executable, as magit-git-executable names it. */
 export const magitGitExecutable = (): string => String(e8.variable("magit-git-executable") ?? "git");

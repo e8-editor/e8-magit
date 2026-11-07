@@ -85,6 +85,7 @@ import { magitAm, magitCherryApply, magitCherryPick, magitRebase, magitRevert, m
 import { magitTag } from "magit-tag";
 import { magitBisect } from "magit-bisect";
 import { magitShowRefs } from "magit-refs";
+import { magitFileCheckout, magitFileRename, magitFileUntrack } from "magit-files";
 import { magitRemote } from "magit-remote";
 import { magitClone } from "magit-clone";
 import { magitGitMergetool, magitRunGitGui, magitRunGitk, magitRunGitkAll, magitRunGitkBranches } from "magit-extras";
@@ -1205,22 +1206,12 @@ const mergeMenu = transientDefinePrefix("magit-merge", {
 
 // Reset.
 
-const resetFile = e8.defineCommand({
-  name: "magit-file-checkout",
-  doc: "Reset a file in the index and the working tree to a commit.",
-  run: () => {
-    const rev = readBranch("Checkout from revision", [...localBranches(), ...remoteBranches()], "HEAD");
-    const file = e8.completingRead(`Checkout file from ${rev}: `, gitLines(["ls-files"]), { requireMatch: true });
-    runGit(["checkout", rev, "--", file]);
-  },
-});
-
 const resetMenu = transientDefinePrefix("magit-reset", {
   doc: "Reset the current branch.",
   groups: [
     {
       items: [
-        { description: "Reset", items: [["b", "branch", branchReset], ["f", "file", resetFile]] },
+        { description: "Reset", items: [["b", "branch", branchReset], ["f", "file", magitFileCheckout]] },
         {
           description: "Reset this",
           items: [
@@ -1578,6 +1569,8 @@ const bindings: [string, e8.DefinedCommand | string][] = [
   ["t", magitTag],
   ["B", magitBisect],
   ["y", magitShowRefs],
+  ["K", magitFileUntrack],
+  ["R", magitFileRename],
   ["!", magitRun],
   ["l", logMenu],
   ["d", diffMenu],
