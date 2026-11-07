@@ -80,6 +80,8 @@ import {
 } from "magit-diff";
 import { magitStatus } from "magit-status";
 import "magit-log";
+import "git-rebase";
+import { magitAm, magitCherryPick, magitRebase, magitRevert } from "magit-sequence";
 import { magitProcessBufferCommand, magitRunGit, magitRunGitWithInput, magitStartGitWith } from "magit-process";
 
 // Faces.
@@ -935,255 +937,6 @@ const fetchMenu = transientDefinePrefix("magit-fetch", {
   ],
 });
 
-// Rebase, after magit-sequence.el and git-rebase.el.
-
-/** Whether a rebase is going on, stopped for something, as magit-rebase-in-progress-p. */
-const rebaseInProgress = magitRebaseInProgressP;
-
-const rebaseArgs = (): string[] => transientArgs("magit-rebase");
-
-/** The commit to rebase from, its parent or --root for the first, as magit-rebase-interactive-1 works it out. */
-const ontoParent = (rev: string): string => (gitOutput(["rev-parse", "--verify", "-q", `${rev}^`]).exit === 0 ? `${rev}^` : "--root");
-
-/** Rebases interactively from REV, with the todo list edited by SEQUENCE, a shell command, or in E8 if none. */
-function rebaseInteractive(rev: string, what: string, sequence?: string): void {
-  const args = ["rebase", "-i", ...rebaseArgs().filter((a) => a !== "--interactive"), ontoParent(rev)];
-  // A sequence editor of its own wins over E8's, which still edits the messages.
-  runGitAsync(args, what, true, sequence ? { GIT_SEQUENCE_EDITOR: sequence } : {});
-}
-
-/** A sequence editor that changes the first line's action, as magit-rebase-edit-commit and its kin have git do. */
-const firstLineTo = (action: string): string => `perl -i -p -e 's/^pick/${action}/ if $. == 1'`;
-
-const rebaseOntoUpstream = e8.defineCommand({
-  name: "magit-rebase-onto-upstream",
-  doc: "Rebase the current branch onto its upstream, setting one first if there is none.",
-  run: () => {
-    const [remote, target, set] = ensureUpstream("rebase");
-    if (set) gitOutput(["branch", `--set-upstream-to=${remote}/${target}`]);
-    runGitAsync(["rebase", ...rebaseArgs(), `${remote}/${target}`], "Rebasing", true);
-  },
-});
-const rebaseOntoPushRemote = e8.defineCommand({
-  name: "magit-rebase-onto-pushremote",
-  doc: "Rebase the current branch onto its push remote's branch, setting one first if there is none.",
-  run: () => {
-    const remote = ensurePushRemote();
-    runGitAsync(["rebase", ...rebaseArgs(), `${remote}/${branchOrHead()}`], "Rebasing", true);
-  },
-});
-const rebaseElsewhere = e8.defineCommand({
-  name: "magit-rebase-branch",
-  doc: "Rebase the current branch onto a branch read.",
-  run: () => runGitAsync(["rebase", ...rebaseArgs(), readBranch(`Rebase ${branchOrHead()} onto`, [...localBranches(), ...remoteBranches()])], "Rebasing", true),
-});
-const rebaseInteractively = e8.defineCommand({
-  name: "magit-rebase-interactive",
-  doc: "Rebase the commits from one read interactively, editing the todo list in git-rebase-mode.",
-  run: () => rebaseInteractive(readCommit("Interactively rebase from"), "Rebasing"),
-});
-const rebaseSubset = e8.defineCommand({
-  name: "magit-rebase-subset",
-  doc: "Rebase the commits from one read onto a new base read.",
-  run: () => {
-    const start = readCommit("Rebase subset starting at");
-    const onto = readBranch("Rebase subset onto", [...localBranches(), ...remoteBranches()]);
-    runGitAsync(["rebase", ...rebaseArgs(), "--onto", onto, ontoParent(start)], "Rebasing", true);
-  },
-});
-const rebaseEditCommit = e8.defineCommand({
-  name: "magit-rebase-edit-commit",
-  doc: "Stop at a commit read, to change it, then go on with r r.",
-  run: () => rebaseInteractive(readCommit("Edit commit"), "Rebasing", firstLineTo("edit")),
-});
-const rebaseRewordCommit = e8.defineCommand({
-  name: "magit-rebase-reword-commit",
-  doc: "Write a commit's message again.",
-  run: () => rebaseInteractive(readCommit("Reword commit"), "Rebasing", firstLineTo("reword")),
-});
-const rebaseRemoveCommit = e8.defineCommand({
-  name: "magit-rebase-remove-commit",
-  doc: "Take a commit out of the history.",
-  run: () => {
-    const rev = readCommit("Remove commit");
-    if (e8.yOrNP(`Remove ${rev}? `)) rebaseInteractive(rev, "Rebasing", firstLineTo("drop"));
-  },
-});
-const rebaseAutosquash = e8.defineCommand({
-  name: "magit-rebase-autosquash",
-  doc: "Squash the fixup and squash commits into the commits they name.",
-  run: () => {
-    const upstream = upstreamOf(currentBranch());
-    const base = upstream ? gitString(["merge-base", "HEAD", upstream]) : undefined;
-    runGitAsync(["rebase", "-i", "--autosquash", "--autostash", "--keep-empty", ...(base ? [base] : ["--root"])], "Autosquashing", true, { GIT_SEQUENCE_EDITOR: ":" });
-  },
-});
-const rebaseContinue = e8.defineCommand({ name: "magit-rebase-continue", doc: "Go on with the rebase.", run: () => runGitAsync(["rebase", "--continue"], "Rebasing", true) });
-const rebaseSkip = e8.defineCommand({ name: "magit-rebase-skip", doc: "Skip the commit the rebase stopped at.", run: () => runGitAsync(["rebase", "--skip"], "Rebasing", true) });
-const rebaseEditTodo = e8.defineCommand({ name: "magit-rebase-edit", doc: "Edit the rest of the rebase's todo list.", run: () => runGitAsync(["rebase", "--edit-todo"], "Editing", true) });
-const rebaseAbort = e8.defineCommand({
-  name: "magit-rebase-abort",
-  doc: "Abort the rebase, going back to where it started.",
-  run: () => {
-    if (e8.yOrNP("Abort this rebase? ")) runGit(["rebase", "--abort"]);
-  },
-});
-
-const rebaseMenu = transientDefinePrefix("magit-rebase", {
-  doc: "Transplant commits and/or modify existing commits.",
-  groups: [
-    {
-      description: "Arguments",
-      if: () => !rebaseInProgress(),
-      items: [
-        ["-k", "Keep empty commits", "--keep-empty"],
-        ["-r", "Rebase merges", "--rebase-merges=", { choices: ["no-rebase-cousins", "rebase-cousins"] }],
-        ["-u", "Update branches", "--update-refs"],
-        ["-d", "Use author date as committer date", "--committer-date-is-author-date"],
-        ["-t", "Use current time as author date", "--ignore-date"],
-        ["-a", "Autosquash", "--autosquash"],
-        ["-A", "Autostash", "--autostash"],
-        ["-i", "Interactive", "--interactive"],
-        ["-h", "Disable hooks", "--no-verify"],
-      ],
-    },
-    {
-      description: () => `Rebase ${branchOrHead()} onto`,
-      if: () => !rebaseInProgress(),
-      items: [
-        ["p", () => { const r = pushRemoteOf(currentBranch()); return r ? `${r}/${branchOrHead()}` : "pushRemote, setting that"; }, rebaseOntoPushRemote],
-        ["u", () => upstreamOf(currentBranch()) ?? "@{upstream}, setting that", rebaseOntoUpstream],
-        ["e", "elsewhere", rebaseElsewhere],
-      ],
-    },
-    {
-      description: "Rebase",
-      if: () => !rebaseInProgress(),
-      items: [
-        { items: [["i", "interactively", rebaseInteractively], ["s", "a subset", rebaseSubset]] },
-        { items: [["m", "to modify a commit", rebaseEditCommit], ["w", "to reword a commit", rebaseRewordCommit], ["k", "to remove a commit", rebaseRemoveCommit]] },
-        { items: [["f", "to autosquash", rebaseAutosquash]] },
-      ],
-    },
-    {
-      description: "Actions",
-      if: () => rebaseInProgress(),
-      items: [["r", "Continue", rebaseContinue], ["s", "Skip", rebaseSkip], ["e", "Edit", rebaseEditTodo], ["a", "Abort", rebaseAbort]],
-    },
-  ],
-});
-
-/** The actions a todo line can have, as git-rebase-command-re matches them. */
-const TODO_LINE = /^(pick|p|reword|r|edit|e|squash|s|fixup|f|drop|d|exec|x|break|b|label|l|reset|t|merge|m|update-ref|u)(\s|$)/;
-
-/** Gives the todo line at point ACTION, and goes to the next, as git-rebase-set-action. */
-function setAction(action: string): void {
-  const line = e8.lineOf(e8.point());
-  const text = e8.lineText(line);
-  const m = TODO_LINE.exec(text);
-  if (!m || ["exec", "x", "break", "b", "label", "l", "reset", "t", "merge", "m", "update-ref", "u"].includes(m[1])) {
-    forwardLine(1);
-    return;
-  }
-  e8.letBind({ "inhibit-read-only": true }, () => {
-    const start = e8.lineStart(line);
-    e8.deleteRegion(start, start + m[1].length);
-    e8.gotoChar(start);
-    e8.insert(action);
-  });
-  forwardLine(1);
-}
-
-/** Moves the todo line at point by N lines, as git-rebase-move-line-down. */
-function moveLine(n: number): void {
-  const line = e8.lineOf(e8.point());
-  const target = line + n;
-  if (target < 0 || !TODO_LINE.test(e8.lineText(line)) || !TODO_LINE.test(e8.lineText(target))) return;
-  e8.letBind({ "inhibit-read-only": true }, () => {
-    const [a, b] = [e8.lineText(line), e8.lineText(target)];
-    for (const [l, t] of [[line, b], [target, a]] as const) {
-      e8.deleteRegion(e8.lineStart(l), e8.lineEnd(l));
-      e8.gotoChar(e8.lineStart(l));
-      e8.insert(t);
-    }
-  });
-  e8.gotoChar(e8.lineStart(target));
-}
-
-const todoCommand = (name: string, action: string, doc: string) => e8.defineCommand({ name, doc, run: () => setAction(action) });
-
-/** Highlights the todo list's actions, hashes and comments, as git-rebase-mode's font-lock keywords. */
-function fontifyTodo(start: number, end: number): void {
-  e8.withSilentModifications(() => {
-    for (let line = e8.lineOf(start); line <= e8.lineOf(Math.max(start, end - 1)); line++) {
-      const ls = e8.lineStart(line);
-      const text = e8.lineText(line);
-      if (text.startsWith("#")) {
-        e8.putTextProperty(ls, e8.lineEnd(line), "face", "font-lock-comment-face");
-        continue;
-      }
-      const m = /^(\S+)(\s+)([0-9a-f]{4,40})?/.exec(text);
-      if (!m || !TODO_LINE.test(text)) continue;
-      e8.putTextProperty(ls, ls + m[1].length, "face", "font-lock-keyword-face");
-      if (m[3]) e8.putTextProperty(ls + m[1].length + m[2].length, ls + m[1].length + m[2].length + m[3].length, "face", "magit-hash");
-    }
-  });
-}
-
-export const gitRebaseMode = e8.defineMajorMode({
-  name: "git-rebase-mode",
-  modeName: "Git Rebase",
-  parent: "text-mode",
-  doc: "Major mode for editing a rebase's todo list: c, r, e, s, f and d set a line's action, M-p and M-n move it, x adds a command to run, C-c C-c starts the rebase.",
-  bindings: {
-    c: todoCommand("git-rebase-pick", "pick", "Use the commit as it is."),
-    r: todoCommand("git-rebase-reword", "reword", "Use the commit, writing its message again."),
-    w: todoCommand("git-rebase-reword-w", "reword", "Use the commit, writing its message again."),
-    e: todoCommand("git-rebase-edit", "edit", "Use the commit, stopping to change it."),
-    m: todoCommand("git-rebase-edit-m", "edit", "Use the commit, stopping to change it."),
-    s: todoCommand("git-rebase-squash", "squash", "Meld the commit into the one before, writing their message."),
-    f: todoCommand("git-rebase-fixup", "fixup", "Meld the commit into the one before, keeping its message."),
-    d: todoCommand("git-rebase-drop", "drop", "Leave the commit out."),
-    k: todoCommand("git-rebase-kill-line", "drop", "Leave the commit out."),
-    "C-k": todoCommand("git-rebase-kill-line-k", "drop", "Leave the commit out."),
-    p: e8.defineCommand({ name: "git-rebase-backward-line", doc: "Go to the line before.", run: () => void forwardLine(-1) }),
-    n: e8.defineCommand({ name: "git-rebase-forward-line", doc: "Go to the next line.", run: () => void forwardLine(1) }),
-    "M-p": e8.defineCommand({ name: "git-rebase-move-line-up", doc: "Move the line up.", run: () => moveLine(-1) }),
-    "M-n": e8.defineCommand({ name: "git-rebase-move-line-down", doc: "Move the line down.", run: () => moveLine(1) }),
-    "M-<up>": "git-rebase-move-line-up" as e8.CommandName,
-    "M-<down>": "git-rebase-move-line-down" as e8.CommandName,
-    x: e8.defineCommand({
-      name: "git-rebase-exec",
-      doc: "Add a shell command to run at this point of the rebase.",
-      run: () => {
-        const cmd = e8.readString("Execute: ");
-        if (cmd === "") return;
-        e8.gotoChar(e8.lineStart(e8.lineOf(e8.point())));
-        e8.insert(`exec ${cmd}\n`);
-      },
-    }),
-    b: e8.defineCommand({
-      name: "git-rebase-break",
-      doc: "Stop the rebase at this point.",
-      run: () => {
-        e8.gotoChar(e8.lineStart(e8.lineOf(e8.point())));
-        e8.insert("break\n");
-      },
-    }),
-    RET: e8.defineCommand({
-      name: "git-rebase-show-commit",
-      doc: "Show the commit of the line at point.",
-      run: () => {
-        const m = /^\S+\s+([0-9a-f]{4,40})/.exec(e8.lineText(e8.lineOf(e8.point())));
-        if (m) showCommit(m[1]);
-      },
-    }),
-  },
-  setup: () => {
-    e8.addHook("jit-lock-functions", fontifyTodo, { local: true });
-  },
-});
-
 // Branch.
 
 /** A branch variable read and set, shown as Magit shows it: branch.main.description unset. */
@@ -1604,16 +1357,6 @@ const stashMenu = transientDefinePrefix("magit-stash", {
 
 // The other menus and commands the dispatch menu names.
 
-const cherryPick = e8.defineCommand({
-  name: "magit-cherry-pick",
-  doc: "Apply the commit at point, or one read, to the current branch, as git cherry-pick.",
-  run: () => runGit(["cherry-pick", readCommit("Cherry-pick")]) as unknown as void,
-});
-const revertCommit = e8.defineCommand({
-  name: "magit-revert-and-commit",
-  doc: "Revert the commit at point, or one read, committing the reversion.",
-  run: () => runGit(["revert", "--no-edit", readCommit("Revert commit")]) as unknown as void,
-});
 const tagCreate = e8.defineCommand({
   name: "magit-tag-create",
   doc: "Create a tag at the commit at point, or one read.",
@@ -1748,7 +1491,7 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
       items: [
         {
           items: [
-            ["A", "Apply", cherryPick],
+            ["A", "Apply", magitCherryPick],
             ["b", "Branch", branchMenu],
             ["B", "Bisect", notYet("magit-bisect", "Bisecting")],
             ["c", "Commit", commitMenu],
@@ -1781,11 +1524,11 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
         },
         {
           items: [
-            ["r", "Rebase", rebaseMenu],
+            ["r", "Rebase", magitRebase],
             ["t", "Tag", tagCreate],
             ["T", "Note", notYet("magit-notes", "Notes")],
-            ["V", "Revert", revertCommit],
-            ["w", "Apply patches", notYet("magit-am", "Applying patches")],
+            ["V", "Revert", magitRevert],
+            ["w", "Apply patches", magitAm],
             ["W", "Format patches", formatPatches],
             ["X", "Reset", resetMenu],
             ["y", "Show Refs", showRefs],
@@ -1841,7 +1584,10 @@ const bindings: [string, e8.DefinedCommand | string][] = [
   ["m", mergeMenu],
   ["X", resetMenu],
   ["z", stashMenu],
-  ["r", rebaseMenu],
+  ["r", magitRebase],
+  ["A", magitCherryPick],
+  ["V", magitRevert],
+  ["w", magitAm],
   ["l", logMenu],
   ["d", diffMenu],
   ["h", dispatch],

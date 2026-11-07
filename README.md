@@ -2,7 +2,7 @@
 
 Git in a status buffer of sections, for [E8](https://github.com/e8-editor/e8): `C-x g` shows the repository, and single keys stage, unstage, discard, commit, branch, push, pull, rebase and stash, with Magit's menus. A port of [Magit](https://github.com/magit/magit) 4.4.0.
 
-**This is a subset of Magit.** The status buffer, staging, committing, branching, pushing and pulling, the log, diffs, stashing and interactive rebasing work, and every menu shows what Magit's does; but blame, bisect, worktrees, submodules, subtrees, notes, ediff and applying patches are not there, and many of the log's and diff's options do nothing yet. [What works](#what-works) and [what is missing](#what-is-missing) below say which, and [docs/plan.md](docs/plan.md) is the plan for porting the rest, step by step. Its versions start at v0.1.0.
+**This is a subset of Magit.** The status buffer, staging, committing, branching, pushing and pulling, the log, diffs, stashing and interactive rebasing work, and every menu shows what Magit's does; but blame, bisect, worktrees, submodules, subtrees, notes and ediff are not there, and many of the log's and diff's options do nothing yet. [What works](#what-works) and [what is missing](#what-is-missing) below say which, and [docs/plan.md](docs/plan.md) is the plan for porting the rest, step by step. Its versions start at v0.1.0.
 
 ## Installing
 
@@ -32,6 +32,7 @@ E8 installs it at its newest version tag into `repos/` beside `init.ts`, with [e
 | `q` | bury the buffer |
 | `h`, `?` | the dispatch menu |
 | `c`, `b`, `P`, `F`, `f`, `m`, `r`, `X`, `z`, `l`, `d` | the commit, branch, push, pull, fetch, merge, rebase, reset, stash, log and diff menus |
+| `A`, `V`, `w` | the cherry-pick, revert and apply-patches (git am) menus |
 
 Commit messages are written in a `COMMIT_EDITMSG` buffer in `git-commit-mode`, and an interactive rebase's todo list in `git-rebase-mode`; `C-c C-c` finishes and `C-c C-k` gives up. git runs E8 as its editor for them through with-editor, so git's own template and hooks apply.
 
@@ -45,18 +46,21 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - **Branch** (`b`): checkout, create, spin off and spin out, rename, reset and delete, and the branch's and repository's configuration.
 - **Push** (`P`), **pull** (`F`) and **fetch** (`f`): to and from the push remote, the upstream (set when there is none) or elsewhere, refspecs, matching branches and tags.
 - **Merge** (`m`): merge, with or without editing the message or committing, absorb, preview, squash and dissolve.
-- **Rebase** (`r`): onto the upstream, the push remote or elsewhere, a subset, interactively with the todo list in `git-rebase-mode`, to edit, reword or remove a commit, autosquash, and continue, skip, edit or abort one going on.
+- **Rebase** (`r`): onto the upstream, the push remote or elsewhere, a subset, interactively, to edit, reword or remove a commit, or autosquash, from the commit at point or one selected in a log, asking before rewriting published commits, and continue, skip, edit or abort one going on.
+- **The todo list** in `git-rebase-mode`, as git-rebase.el's: `c`, `r`, `e`, `s`, `S`, `f`, `F` and `d` set the action of the line or the region's lines, `k` comments a line out or in, `M-p` and `M-n` move lines, `x`, `l`, `t`, `u`, `M M`, `b`, `z` and `y` add exec, label, reset, update-ref, merge, break, noop and pick lines, `RET` and `SPC` show the commit, and the instructions name these keys.
+- **Cherry-pick** (`A`): pick or apply commits here, harvest them from another branch, donate them to one, or spin them out or off to a new branch; **revert** (`V`) with or without committing; **apply patches** (`w`) from files or a maildir; and continue, skip or abort a sequence going on.
 - **Reset** (`X`): mixed, soft, hard, keep, the index or the worktree only, a branch, or a file.
 - **Stash** (`z`): both, the index, the worktree, or keeping the index; snapshots; apply, pop, drop, list, show, branch, and format a stash as a patch.
 - **Log** (`l`): the current branch, HEAD, another, the related branches, local or all branches, all references, matching branches or tags, a file's history, a definition's trace, a commit's merge; reflogs; shortlog; cherries. Each commit has its graph, refs and summary, and its author and age in the margin (`L` to toggle, cycle or detail it); `+`, `-` and `=` change the limit; with `++header`, `--patch` or `--stat` the commit's header or diff. `RET` shows a commit.
 - **The status buffer** as Magit's: the headers (an error, the diff filter, Head, Merge or Rebase, Push, the tags), a merge, rebase, git am, cherry-pick, revert or bisect going on, untracked files, unstaged and staged changes, stashes, and the commits unpushed, unpulled or recent, each section a function in `magit-status-sections-hook`; `j` jumps to a section.
 - **Diff** (`d`): dwim, a range, two paths, unstaged, staged, the worktree, a commit, a stash, each with a diffstat; `+`, `-` and `0` change the context, `j` jumps between the diffstat and the diff, `SPC` and `DEL` show the commit at point or scroll it, and with `magit-diff-refine-hunk` the words that changed are marked. The revision buffer shows a commit's refs, author, parents, the branches it is merged into and contained in, the tags around it, its message and notes, and a tag's message; the stash buffer a stash's unstaged, staged and untracked changes. `RET` on a hunk visits its line in the work tree or the blob.
-- From the dispatch menu, cherry-pick, revert, tag, ignore, init, clone, run a git command, refs, cherries, add a remote and format patches, one command each.
+- From the dispatch menu, tag, ignore, init, clone, run a git command, refs, cherries, add a remote and format patches, one command each.
 
 ## What is missing
 
-- **Not there at all**: blame; bisect; worktrees; submodules; subtrees; notes; ediff; applying patches (`w`, git am); applying or reversing a change from elsewhere (`a`, `v`); and `magit-file-dispatch`. Their keys in the menus say so.
-- **One command rather than a menu**: cherry-pick, revert, tag and remote, where Magit opens a menu of their own.
+- **Not there at all**: blame; bisect; worktrees; submodules; subtrees; notes; ediff; applying or reversing a change from elsewhere (`a`, `v`); and `magit-file-dispatch`. Their keys in the menus say so.
+- **One command rather than a menu**: tag and remote, where Magit opens a menu of their own.
+- Suffixes Magit puts above level 4 (signing, `--exec`, a rebase's strategy) are left out of the menus until E8's transient has levels (E8 0.5).
 - Only programs E8 starts can use E8 as their editor (see e8-with-editor).
 
 ## Credit
@@ -72,7 +76,7 @@ make test
 make types
 ```
 
-`make` clones e8-magit-section and e8-with-editor into `.e8/deps`. The tests in `test/magit-tests.ts` each make a git repository in a temporary directory and check what the status buffer shows, key by key, against what Magit 4.4.0 shows in Emacs 30; that staging, unstaging, discarding, committing, branching, stashing, pushing, an instant fixup, an interactive rebase and rewording change the repository as they should; and that each menu is laid out as Magit's. `test/oracle/` holds what Magit shows for each case in `test/oracle/cases.json`, a fixture repository made by `test/fixtures.sh` and keys typed in its status buffer, and `test/oracle-tests.ts` types the same keys in E8 and compares the buffer's name, text, point and faces; a case marked `pending` is one the [plan](docs/plan.md) has yet to port, and `E8_ORACLE_REPORT=1 make test` prints what differs. `test/menus.json` holds Magit's menus. Both are recorded from Emacs by `test/record.el` (`make oracle`, or `E8_ORACLE_ONLY=NAME make oracle` for the cases whose names have NAME, with Magit installed by elpaca or `E8_ELPA_BUILDS` naming where its packages are built).
+`make` clones e8-magit-section and e8-with-editor into `.e8/deps`. The tests in `test/magit-tests.ts` each make a git repository in a temporary directory and check what the status buffer shows, key by key, against what Magit 4.4.0 shows in Emacs 30; that staging, unstaging, discarding, committing, branching, stashing, pushing, an instant fixup, an interactive rebase, rewording, cherry-picking, spinning off, reverting and applying a patch change the repository as they should; and that each menu is laid out as Magit's. `test/oracle/` holds what Magit shows for each case in `test/oracle/cases.json`, a fixture repository made by `test/fixtures.sh` and keys typed in its status buffer, and `test/oracle-tests.ts` types the same keys in E8 and compares the buffer's name, text, point and faces; a case marked `pending` is one the [plan](docs/plan.md) has yet to port, and `E8_ORACLE_REPORT=1 make test` prints what differs. `test/menus.json` holds Magit's menus. Both are recorded from Emacs by `test/record.el` (`make oracle`, or `E8_ORACLE_ONLY=NAME make oracle` for the cases whose names have NAME, with Magit installed by elpaca or `E8_ELPA_BUILDS` naming where its packages are built).
 
 ## Licence
 
