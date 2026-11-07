@@ -676,11 +676,15 @@ export function magitListWorktrees(): { path: string; commit?: string; branch?: 
   }
   return out;
 }
-/** The submodules' paths, as magit-list-module-paths. */
-export const magitListModulePaths = (): string[] =>
-  magitGitLines("submodule--helper", "list")
-    .map((l) => l.split("\t")[1])
+/** The submodules' paths, the gitlinks git ls-files lists, as magit-list-module-paths. */
+export function magitListModulePaths(): string[] {
+  const top = magitToplevel();
+  if (!top) return [];
+  return magitGitRun(["ls-files", "-z", "--stage"], { dir: top })
+    .output.split("\0")
+    .map((l) => /^160000 [0-9a-z]{40,} 0\t(.+)$/.exec(l)?.[1])
     .filter((p): p is string => p !== undefined);
+}
 
 // The labels of refs, after magit-format-ref-labels.
 
