@@ -53,7 +53,7 @@ ertDeftest("magit-diff-tabs-take-the-width-of-the-files-buffer", () => {
     });
     e8.letBind({ "magit-diff-adjust-tab-width": true }, () => {
       magitDiffSetupBuffer(undefined, undefined, ["--no-ext-diff"], [], "unstaged");
-      e8.call("magit-refresh");
+      e8.call("magit-refresh" as e8.CommandName);
       shouldEqual(tabDisplay(), space(4));
     });
   });
@@ -127,7 +127,7 @@ ertDeftest("magit-revision-buffers-fill-the-summary-and-wash-the-message", () =>
     shouldEqual(e8.getTextProperty(e8.point(), "font-lock-face"), "magit-keyword");
     // The hook's functions run narrowed to the message, from its start.
     e8.defun("magit-test-wash", () => e8.putTextProperty(e8.pointMin(), e8.pointMax(), "magit-test-washed", e8.bufferSubstringNoProperties(e8.pointMin(), e8.pointMin() + 7)));
-    e8.letBind({ "magit-revision-wash-message-hook": ["magit-test-wash"] }, () => e8.call("magit-refresh"));
+    e8.letBind({ "magit-revision-wash-message-hook": ["magit-test-wash"] }, () => e8.call("magit-refresh" as e8.CommandName));
     gotoText("The body");
     shouldEqual(e8.getTextProperty(e8.point(), "magit-test-washed"), "squash!");
     shouldEqual(e8.getTextProperty(e8.point() + 9, "font-lock-face"), undefined);

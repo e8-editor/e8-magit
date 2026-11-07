@@ -52,7 +52,7 @@ import {
   magitRevParse,
   magitRevVerify,
 } from "magit-git";
-import { magitBufferInfo, magitBufferName, magitGetModeBuffer, magitLogMode, magitModeBuryBuffer, magitRefresh, magitRefreshBuffer, magitReflogMode, magitSetupBuffer } from "magit-mode";
+import { magitBufferInfo, magitBufferName, magitGetModeBuffer, magitLogMode, magitModeBuryBuffer, magitRefresh, magitRefreshBuffer, magitReflogMode, magitSetupBuffer, magitMode } from "magit-mode";
 import { magitRunGit } from "magit-process";
 import { inserters, magitDiffVisitFileNoselect, magitDiffWashDiffs, magitShowCommitRev, magitUseBufferArguments, magitUseBufferArgumentsBuffer, magitWithTempPosition, runSectionHook } from "magit-diff";
 import { magitLogFormatMargin, magitMakeMarginOverlay, magitRightMarginActive, magitSetBufferMargins } from "magit-margin";
@@ -1066,7 +1066,7 @@ for (const [key, command] of [
 
 // The cherry buffer.
 
-export const magitCherryMode = e8.defineMajorMode({ name: "magit-cherry-mode", modeName: "Magit Cherry", parent: "magit-mode", doc: "Mode for looking at commits not merged upstream." });
+export const magitCherryMode = e8.defineMajorMode({ name: "magit-cherry-mode", modeName: "Magit Cherry", parent: magitMode, doc: "Mode for looking at commits not merged upstream." });
 
 /** Shows the commits of HEAD not in UPSTREAM, as magit-cherry-setup-buffer: the sections of magit-cherry-sections-hook. */
 export function magitCherrySetupBuffer(head: string, upstream: string): string {
