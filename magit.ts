@@ -106,6 +106,7 @@ import { magitPatch } from "magit-patch";
 import { magitWorktree } from "magit-worktree";
 import { magitRemote } from "magit-remote";
 import { magitClone } from "magit-clone";
+import "magit-blame";
 import { magitGitMergetool, magitRunGitGui, magitRunGitk, magitRunGitkAll, magitRunGitkBranches } from "magit-extras";
 import { magitProcessBuffer, magitProcessBufferCommand, magitRunGit, magitRunGitWithInput, magitStartGitWith, magitStartProcess } from "magit-process";
 
