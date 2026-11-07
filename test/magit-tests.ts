@@ -289,7 +289,11 @@ ertDeftest("magit-an-instant-fixup-goes-into-the-commit", () => {
     shouldEqual(e8.variable("major-mode"), "magit-log-select-mode");
     gotoText(first);
     e8.executeKbdMacro(".");
-    settle(() => git(dir, "log", "--format=%s") === "Second\nFirst commit\n");
+    // Done once git's rebase has ended, not when the log first shows the
+    // two commits: git may still be finishing it, and the repository is
+    // deleted after the test.
+    const rebasing = () => e8.fileExistsP(e8.expandFileName(".git/rebase-merge", dir));
+    settle(() => !rebasing() && git(dir, "log", "--format=%s") === "Second\nFirst commit\n");
     shouldEqual(git(dir, "log", "--format=%s"), "Second\nFirst commit\n");
     shouldEqual(git(dir, "show", "HEAD~:c.txt"), "new\n");
   });
