@@ -62,11 +62,12 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - **References** (`y`, `C-u y` for the menu): the local branches with their upstreams and how far ahead and behind, each remote's branches and the tags, each expanding to the commits the focused ref lacks.
 - **Ignoring** (`i`): at the top, in a subdirectory, privately or for all repositories; skip-worktree and assume-unchanged. **Notes** (`T`): edit, remove, merge and prune, and the notes refs. **Patches** (`W`): create with git format-patch and its options, apply, save a diff. **Bisect** (`B`): start, good, bad, mark, skip, run a script, reset, with the bisect sections in the status buffer.
 - **Worktrees** (`Z`): check out, branch, move, delete, visit, and their sections. **Submodules** (`o`): add, register, populate, update, synchronize, unpopulate, remove, list, and the module sections. **Subtrees** (`O`): import (add, merge, pull) and export (push, split).
+- **Files** (`C-c M-g` in a file's buffer): stage, unstage, untrack, rename, delete and check out the file, diff, log and trace it, and visit it at a revision (`magit-find-file`), in the index, or step through its revisions with `n` and `p` in `magit-blob-mode`; `magit-update-index` writes the index's version back; `K` and `R` untrack and rename in Magit buffers.
 - From the dispatch menu, cherries, one command.
 
 ## What is missing
 
-- **Not there at all**: blame; ediff; applying or reversing a change from elsewhere (`a`, `v`); and `magit-file-dispatch`. Their keys in the menus say so.
+- **Not there at all**: blame; ediff; applying or reversing a change from elsewhere (`a`, `v`). Their keys in the menus say so.
 - Suffixes Magit puts above level 4 (signing, `--exec`, a rebase's strategy, some of clone's) are left out of the menus until E8's transient has levels (E8 0.5).
 - Only programs E8 starts can use E8 as their editor (see e8-with-editor).
 
