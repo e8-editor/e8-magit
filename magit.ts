@@ -95,6 +95,7 @@ import { magitWorktree } from "magit-worktree";
 import { magitRemote } from "magit-remote";
 import { magitClone } from "magit-clone";
 import { magitGitMergetool, magitPopRevisionStackCommand, magitRunGitGui, magitRunGitk, magitRunGitkAll, magitRunGitkBranches } from "magit-extras";
+import "magit-dired";
 import { magitAnyWipModeEnabledP, magitWipCommitAfterApply, magitWipCommitBeforeChange, magitWipCommitCommand } from "magit-wip";
 import { magitProcessBuffer, magitProcessBufferCommand, magitRunGit, magitRunGitWithInput, magitStartGitWith, magitStartProcess } from "magit-process";
 

@@ -526,6 +526,8 @@ export const magitRevert = transientDefinePrefix("magit-revert", {
 // Patches by email.
 
 const amArgs = (): string[] => transientArgs("magit-am");
+/** Applies the patches FILES with ARGS, as magit-am-apply-patches does given them. */
+export const magitAmApplyPatchesFiles = (files: string[], args = amArgs()): string => sequencer(["am", ...args, "--", ...files.map((f) => e8.expandFileName(f))]);
 export const magitAmApplyPatches = e8.defineCommand({
   name: "magit-am-apply-patches",
   doc: "Apply the patches FILES.",
@@ -533,7 +535,7 @@ export const magitAmApplyPatches = e8.defineCommand({
     const region = (magitRegionValues("file", true) as string[] | undefined) ?? [];
     const def = magitFileAtPoint();
     const files = region.length > 0 ? region : [e8.readFileName(def ? `Apply patch (${def}): ` : "Apply patch: ", { default: def })];
-    sequencer(["am", ...amArgs(), "--", ...files.map((f) => e8.expandFileName(f))]);
+    magitAmApplyPatchesFiles(files);
   },
 });
 export const magitAmApplyMaildir = e8.defineCommand({
