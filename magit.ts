@@ -2359,6 +2359,8 @@ const bindings: [string, e8.DefinedCommand | string][] = [
 ];
 for (const [key, command] of bindings) e8.defineKey("magit-mode-map", key, command as e8.DefinedCommand);
 
+// M-x magit is magit-status, as Magit's defalias makes it.
+e8.defalias("magit", "magit-status");
 e8.bindKey("C-x g", magitStatus);
 e8.bindKey("C-x M-g", dispatch);
 
