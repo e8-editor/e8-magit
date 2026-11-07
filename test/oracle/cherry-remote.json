@@ -1,0 +1,14 @@
+{
+  "buffer": "magit-cherry: repo",
+  "point": 1,
+  "text": "Head:     main Local commit\nUpstream: origin/main Remote commit\n\nCherry commits (1)\n+ e6b47a8 Local commit\n\n",
+  "faces": [
+    "1:10-14 magit-branch-local",
+    "2:10-21 magit-branch-remote",
+    "4:0-14 magit-section-heading",
+    "4:14-16 magit-section-child-count",
+    "4:17-18 magit-section-child-count",
+    "5:0-1 magit-cherry-unmatched",
+    "5:2-9 magit-hash"
+  ]
+}

@@ -51,6 +51,7 @@ import {
   magitReadStash,
   magitToplevel,
   magitToplevelOrError,
+  magitUntrackedFiles,
   magitWithRefreshCache,
 } from "magit-git";
 import {
@@ -77,6 +78,8 @@ import {
   magitStashShow,
   type FileValue,
 } from "magit-diff";
+import { magitStatus } from "magit-status";
+import "magit-log";
 import { magitProcessBufferCommand, magitRunGit, magitRunGitWithInput, magitStartGitWith } from "magit-process";
 
 // Faces.
@@ -126,142 +129,18 @@ export function runGitAsync(args: string[], _what: string, editor = false, env: 
   magitStartGitWith(args, { editor, env });
 }
 
-// Inserting the status buffer.
-
-const face = (text: string, f: string): e8.PropertizedString => e8.propertize(text, { face: f });
-
-/** The labels of a commit's refs, with a space after them, as a log line shows them. */
-function refLabels(decorations: string): e8.PropertizedString | string {
-  const labels = magitFormatRefLabels(decorations);
-  return labels === "" ? "" : e8.concat(labels, " ");
-}
-
-/** Inserts commits as a section's lines, hash, refs and subject, as magit-insert-log does in the status buffer. */
-function insertCommits(range: string[]): number {
-  const lines = gitLines(["log", "--format=%h%x00%D%x00%s", "--decorate=full", ...range, "--"]);
-  for (const line of lines) {
-    const [hash, refs, subject] = line.split("\0");
-    insertSection("commit", hash, false, () => {
-      insertHeading(face(hash, "magit-hash"), " ", refLabels(refs), subject, "\n");
-    });
-  }
-  return lines.length;
-}
+// The status buffer is magit-status.ts's.
 
 const currentBranch = magitGetCurrentBranch;
 const upstreamOf = (branch?: string): string | undefined => (branch ? magitGetUpstreamBranch(branch) : undefined);
-
-/** The status buffer's header lines: Head, Merge and Push, as magit-insert-status-headers. */
-function insertHeaders(): void {
-  const branch = currentBranch();
-  const subject = gitString(["log", "-1", "--format=%s"]);
-  const label = (s: string) => s.padEnd(10);
-  const headLabel = branch ? face(branch, "magit-branch-local") : face(gitString(["rev-parse", "--short", "HEAD"]) ?? "", "magit-hash");
-  e8.insert(e8.concat(label("Head:"), headLabel, subject !== undefined ? ` ${subject}` : " nothing committed (yet)", "\n"));
-  const upstream = upstreamOf(branch);
-  if (upstream) {
-    const usubject = gitString(["log", "-1", "--format=%s", upstream]);
-    const kind = gitString(["config", `branch.${branch}.rebase`]) === "true" ? "Rebase:" : "Merge:";
-    e8.insert(e8.concat(label(kind), face(upstream, "magit-branch-remote"), usubject !== undefined ? ` ${usubject}` : "", "\n"));
-  }
-  const pushRemote = branch ? (gitString(["config", `branch.${branch}.pushRemote`]) ?? gitString(["config", "remote.pushDefault"])) : undefined;
-  if (pushRemote && branch && `${pushRemote}/${branch}` !== upstream) {
-    const target = `${pushRemote}/${branch}`;
-    const psubject = gitString(["log", "-1", "--format=%s", target]);
-    e8.insert(e8.concat(label("Push:"), face(target, "magit-branch-remote"), psubject !== undefined ? ` ${psubject}` : "", "\n"));
-  }
-  const tag = gitString(["describe", "--tags", "--abbrev=0"]);
-  if (tag) {
-    const count = gitString(["rev-list", "--count", `${tag}..HEAD`]);
-    e8.insert(e8.concat(label("Tag:"), face(tag, "magit-tag"), count && count !== "0" ? ` (${count})` : "", "\n"));
-  }
-}
-
-/** Whether HEAD names a commit yet. */
 const hasCommits = (): boolean => !magitNoCommitP();
-
-/** Inserts the status buffer, as magit-status-refresh-buffer and magit-status-sections-hook. */
-function insertStatus(): void {
-  insertRoot("status", () => {
-    insertHeaders();
-    e8.insert("\n");
-    const untracked = gitLines(["ls-files", "--others", "--exclude-standard", "--directory", "--no-empty-directory"]);
-    // Each section ends with the blank line after it, which hides with it, as Magit inserts it.
-    if (untracked.length > 0) {
-      insertSection("untracked", undefined, true, () => {
-        insertHeading(untracked.length, "Untracked files");
-        for (const f of untracked) insertSection("file", { file: f, kind: "untracked" }, false, () => insertHeading(face(f, "magit-filename"), "\n"));
-        e8.insert("\n");
-      });
-    }
-    magitInsertUnstagedChanges();
-    magitInsertStagedChanges();
-    const stashes = gitLines(["stash", "list", "--format=%gd%x00%gs"]);
-    if (stashes.length > 0) {
-      insertSection("stashes", undefined, true, () => {
-        insertHeading("Stashes:");
-        for (const s of stashes) {
-          const [ref, subject] = s.split("\0");
-          insertSection("stash", ref, false, () => insertHeading(face(ref, "magit-hash"), ` ${subject}`, "\n"));
-        }
-        e8.insert("\n");
-      });
-    }
-    const branch = currentBranch();
-    const upstream = upstreamOf(branch);
-    if (upstream && gitLines(["rev-list", `${upstream}..HEAD`]).length > 0) {
-      insertSection("unpushed", upstream, false, () => {
-        const n = gitLines(["rev-list", `${upstream}..HEAD`]).length;
-        insertHeading(face("Unmerged into ", "magit-section-heading"), face(upstream, "magit-branch-remote"), ` (${n})`, "\n");
-        insertCommits([`${upstream}..HEAD`]);
-        e8.insert("\n");
-      });
-    } else if (!upstream && hasCommits()) {
-      insertSection("recent", undefined, true, () => {
-        insertHeading(face("Recent commits", "magit-section-heading"), "\n");
-        insertCommits([`-${Number(e8.variable("magit-log-section-commit-count") ?? 10)}`]);
-        e8.insert("\n");
-      });
-    }
-    if (upstream && gitLines(["rev-list", `HEAD..${upstream}`]).length > 0) {
-      insertSection("unpulled", upstream, false, () => {
-        const n = gitLines(["rev-list", `HEAD..${upstream}`]).length;
-        insertHeading(face("Unpulled from ", "magit-section-heading"), face(upstream, "magit-branch-remote"), ` (${n})`, "\n");
-        insertCommits([`HEAD..${upstream}`]);
-        e8.insert("\n");
-      });
-    }
-  });
-}
-
-/** Shows the status of the repository, as magit-status. */
-export const magitStatus = e8.defineCommand({
-  name: "magit-status",
-  doc: "Show the status of the current Git repository in a buffer: the branch, the changes and the commits not pushed.",
-  run: () => {
-    const dir = toplevel();
-    if (!dir) {
-      const answer = e8.readFileName("Initialize Git repository: ", { dir: String(e8.variable("default-directory")) });
-      if (!e8.yOrNP(`Create repository in ${answer}? `)) e8.userError("Abort");
-      e8.callProcess([magitGitExecutable(), "init", e8.expandFileName(answer)]);
-      e8.letBind({ "default-directory": e8.fileNameAsDirectory(e8.expandFileName(answer)) }, () => e8.call(magitStatus));
-      return;
-    }
-    e8.letBind({ "default-directory": dir }, () => {
-      setupBuffer(`magit: ${repoName(dir)}`, magitStatusMode, "status", insertStatus);
-    });
-    // Point starts on the first section after the headers, as Magit puts it.
-    const first = sections()?.root.children[0];
-    if (first) e8.gotoChar(first.start);
-  },
-});
-
 const refreshCommand = magitRefreshCommand;
 const refreshAllCommand = magitRefreshAllCommand;
-const setupBuffer = magitSetupBuffer;
 const refreshAll = magitRefreshAll;
-const refreshBuffer = magitRefreshBuffer;
+const setupBuffer = magitSetupBuffer;
 const repoName = magitRepoName;
+
+const face = (text: string, f: string): e8.PropertizedString => e8.propertize(text, { face: f });
 
 // Applying: staging, unstaging and discarding.
 
@@ -269,8 +148,12 @@ const repoName = magitRepoName;
 function targets(): { section: Section; values: FileValue[] } | undefined {
   const s = currentSection();
   if (!s) return undefined;
-  if (s.type === "file" || s.type === "hunk") return { section: s, values: [s.value as FileValue] };
-  if (s.type === "untracked" || s.type === "unstaged" || s.type === "staged") return { section: s, values: s.children.map((c) => c.value as FileValue) };
+  // An untracked file's section has its name as its value, as Magit's has.
+  const asValue = (x: Section): FileValue => (typeof x.value === "string" ? { file: x.value, kind: "untracked" } : (x.value as FileValue));
+  if (s.type === "file" || s.type === "hunk") return { section: s, values: [asValue(s)] };
+  // The untracked list's files are inserted only when it is shown: ask git for them.
+  if (s.type === "untracked") return { section: s, values: magitUntrackedFiles().map((file) => ({ file, kind: "untracked" as const })) };
+  if (s.type === "unstaged" || s.type === "staged") return { section: s, values: s.children.map(asValue) };
   return { section: s, values: [] };
 }
 
@@ -709,55 +592,11 @@ const stashDrop = e8.defineCommand({
   },
 });
 
-// The log and commits, after magit-log.el and magit-diff.el.
+// The log is magit-log.ts's.
 
-/** Inserts a log of ARGS, a line a commit with its refs, author and date, as magit-insert-log. */
-function insertLog(args: string[]): void {
-  insertRoot("logbuf", () => {
-    const lines = gitLines(["log", "--format=%h%x00%D%x00%s%x00%an%x00%ar", "-n256", ...args, "--"]);
-    for (const line of lines) {
-      const [hash, refs, subject, author, date] = line.split("\0");
-      insertSection("commit", hash, false, () => {
-        insertHeading(face(hash, "magit-hash"), " ", refLabels(refs), subject, "  ", face(author, "magit-log-author"), " ", face(date, "magit-log-date"), "\n");
-      });
-    }
-  });
-}
-
-const logCurrent = e8.defineCommand({
-  name: "magit-log-current",
-  doc: "Show the log of the current branch.",
-  run: () => {
-    const dir = repo();
-    const args = logArgs();
-    setupBuffer(`magit-log: ${repoName(dir)}`, magitLogMode, "log", () => insertLog([...args, "HEAD"]));
-    e8.gotoChar(0);
-  },
-});
-
-const logAll = e8.defineCommand({
-  name: "magit-log-all",
-  doc: "Show the log of all references and HEAD.",
-  run: () => {
-    const dir = repo();
-    const args = logArgs();
-    setupBuffer(`magit-log: ${repoName(dir)}`, magitLogMode, "log", () => insertLog([...args, "--all"]));
-    e8.gotoChar(0);
-  },
-});
-
-const logOther = e8.defineCommand({
-  name: "magit-log-other",
-  doc: "Show the log of a branch or commit read.",
-  run: () => {
-    const dir = repo();
-    const rev = readBranch("Log rev,s", [...localBranches(), ...remoteBranches()], currentBranch());
-    const args = logArgs();
-    setupBuffer(`magit-log: ${repoName(dir)}`, magitLogMode, "log", () => insertLog([...args, rev]));
-    e8.gotoChar(0);
-  },
-});
-
+const logCurrent = "magit-log-current";
+const logAll = "magit-log-all";
+const logOther = "magit-log-other";
 
 /** Shows a commit in the revision buffer, as magit-show-commit. */
 export const showCommit = (rev: string): void => magitShowCommitRev(rev);
@@ -1451,60 +1290,24 @@ const branchMenu = transientDefinePrefix("magit-branch", {
 
 // Log.
 
-const logRelated = e8.defineCommand({
-  name: "magit-log-related",
-  doc: "Show the log of the current branch, its upstream and its push target.",
-  run: () => {
-    const dir = repo();
-    const branch = currentBranch();
-    const revs = ["HEAD", ...[upstreamOf(branch)].filter((r): r is string => r !== undefined)];
-    const args = logArgs();
-    setupBuffer(`magit-log: ${repoName(dir)}`, magitLogMode, "log", () => insertLog([...args, ...revs]));
-    e8.gotoChar(0);
-  },
-});
+const logRelated = "magit-log-related";
 
-const logBranches = (name: string, doc: string, refs: string[]) =>
-  e8.defineCommand({
-    name,
-    doc,
-    run: () => {
-      const dir = repo();
-      const args = logArgs();
-      setupBuffer(`magit-log: ${repoName(dir)}`, magitLogMode, "log", () => insertLog([...args, ...refs]));
-      e8.gotoChar(0);
+/** The shortlog menu, as magit-shortlog. */
+const shortlog = transientDefinePrefix("magit-shortlog", {
+  doc: "Show a history summary.",
+  value: ["--numbered", "--summary"],
+  groups: [
+    {
+      description: "Arguments",
+      items: [
+        ["-n", "Sort by number of commits", "--numbered"],
+        ["-s", "Show commit count summary only", "--summary"],
+        ["-e", "Show email addresses", "--email"],
+        ["-g", "Group commits by", "--group=", { choices: ["author", "committer", "trailer:"] }],
+      ],
     },
-  });
-
-/** Shows a reflog, as magit-reflog-current. */
-const reflog = (name: string, doc: string, ref: () => string) =>
-  e8.defineCommand({
-    name,
-    doc,
-    run: () => {
-      const dir = repo();
-      const r = ref();
-      setupBuffer(`magit-reflog: ${repoName(dir)}`, magitLogMode, "reflog", () =>
-        insertRoot("reflogbuf", () => {
-          for (const line of gitLines(["reflog", "show", "--format=%h%x00%gs", "-n256", r])) {
-            const [hash, subject] = line.split("\0");
-            insertSection("commit", hash, false, () => insertHeading(face(hash, "magit-hash"), " ", subject, "\n"));
-          }
-        }),
-      );
-      e8.gotoChar(0);
-    },
-  });
-
-const shortlog = e8.defineCommand({
-  name: "magit-shortlog",
-  doc: "Show the commits by author, as git shortlog.",
-  run: () => {
-    const dir = repo();
-    const out = gitOutput(["shortlog", "HEAD"]).output;
-    setupBuffer(`magit-shortlog: ${repoName(dir)}`, magitLogMode, "shortlog", () => insertRoot("shortlog", () => e8.insert(out)));
-    e8.gotoChar(0);
-  },
+    { description: "Shortlog", items: [["s", "since", "magit-shortlog-since"], ["r", "range", "magit-shortlog-range"]] },
+  ],
 });
 
 /** The log arguments, those that change what git log lists rather than how it draws it. */
@@ -1558,17 +1361,17 @@ const logMenu = transientDefinePrefix("magit-log", {
         {
           description: "",
           items: [
-            ["L", "local branches", logBranches("magit-log-branches", "Show the log of all local branches and HEAD.", ["--branches", "HEAD"])],
-            ["b", "all branches", logBranches("magit-log-all-branches", "Show the log of all local and remote branches and HEAD.", ["--branches", "--remotes", "HEAD"])],
+            ["L", "local branches", "magit-log-branches"],
+            ["b", "all branches", "magit-log-all-branches"],
             ["a", "all references", logAll],
           ],
         },
         {
           description: "Reflog",
           items: [
-            ["r", "current", reflog("magit-reflog-current", "Show the reflog of the current branch.", () => branchOrHead())],
-            ["O", "other", reflog("magit-reflog-other", "Show the reflog of a branch read.", () => readBranch("Show reflog for", localBranches(), currentBranch()))],
-            ["H", "HEAD", reflog("magit-reflog-head", "Show the HEAD reflog.", () => "HEAD")],
+            ["r", "current", "magit-reflog-current"],
+            ["O", "other", "magit-reflog-other"],
+            ["H", "HEAD", "magit-reflog-head"],
           ],
         },
         { description: "Other", items: [["s", "shortlog", shortlog]] },
@@ -1744,22 +1547,7 @@ const stashToWip = e8.defineCommand({
     runGit(["update-ref", `refs/wip/wtree/refs/heads/${branchOrHead()}`, hash]);
   },
 });
-const stashList = e8.defineCommand({
-  name: "magit-stash-list",
-  doc: "List the stashes.",
-  run: () => {
-    const dir = repo();
-    setupBuffer(`magit-stashes: ${repoName(dir)}`, magitLogMode, "stashes", () =>
-      insertRoot("stashesbuf", () => {
-        for (const s of gitLines(["stash", "list", "--format=%gd%x00%gs"])) {
-          const [ref, subject] = s.split("\0");
-          insertSection("stash", ref, false, () => insertHeading(face(ref, "magit-hash"), ` ${subject}`, "\n"));
-        }
-      }),
-    );
-    e8.gotoChar(0);
-  },
-});
+const stashList = "magit-stash-list";
 const stashBranch = e8.defineCommand({
   name: "magit-stash-branch",
   doc: "Create a branch from a stash's commit, apply the stash to it and drop the stash.",
@@ -1905,16 +1693,7 @@ const showRefs = e8.defineCommand({
     e8.gotoChar(0);
   },
 });
-const cherries = e8.defineCommand({
-  name: "magit-cherry",
-  doc: "Show the commits of the current branch not in its upstream, as git cherry.",
-  run: () => {
-    const dir = repo();
-    const up = upstreamOf(currentBranch()) ?? readBranch("Cherry upstream", remoteBranches());
-    setupBuffer(`magit-cherry: ${repoName(dir)}`, magitLogMode, "cherry", () => insertRoot("cherry", () => insertCommits([`${up}..HEAD`])));
-    e8.gotoChar(0);
-  },
-});
+const cherries = "magit-cherry";
 const remoteAdd = e8.defineCommand({
   name: "magit-remote-add",
   doc: "Add a remote, by a name and URL read.",

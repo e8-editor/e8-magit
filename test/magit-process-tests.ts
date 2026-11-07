@@ -47,7 +47,8 @@ ertDeftest("magit-process-a-failing-command-says-why-and-is-logged", () => {
     const last = e8.messages().at(-1) ?? "";
     should(last.startsWith("Git error: pathspec 'no-such-branch' did not match"), last);
     should(last.includes('Type $ to see "magit-process: repo" for details'), last);
-    shouldEqual(e8.withCurrentBuffer("magit: repo", () => e8.variable("magit-this-error")), "pathspec 'no-such-branch' did not match any file(s) known to git");
+    // The status buffer shows the error at its top, once, as magit-insert-error-header does.
+    should(e8.withCurrentBuffer("magit: repo", () => e8.bufferText()).startsWith("GitError! pathspec 'no-such-branch' did not match any file(s) known to git  [Type `$' for details]\n"));
     const log = proc.magitProcessLog(repo);
     shouldEqual(log.at(-1)?.args.slice(-2), ["checkout", "no-such-branch"]);
     const name = proc.magitProcessBuffer(true);
@@ -57,7 +58,7 @@ ertDeftest("magit-process-a-failing-command-says-why-and-is-logged", () => {
     // A command that succeeds ends with 0, its section hidden.
     shouldEqual(proc.magitRunGit("branch", "new"), 0);
     should(/^  0 git … branch new$/m.test(e8.withCurrentBuffer(name, () => e8.bufferText())));
-    shouldEqual(e8.withCurrentBuffer("magit: repo", () => e8.variable("magit-this-error")), null);
+    should(!e8.withCurrentBuffer("magit: repo", () => e8.bufferText()).includes("GitError!"));
   });
 });
 
