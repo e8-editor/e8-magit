@@ -95,6 +95,7 @@ import { magitWorktree } from "magit-worktree";
 import { magitRemote } from "magit-remote";
 import { magitClone } from "magit-clone";
 import { magitGitMergetool, magitPopRevisionStackCommand, magitRunGitGui, magitRunGitk, magitRunGitkAll, magitRunGitkBranches } from "magit-extras";
+import { magitAnyWipModeEnabledP, magitWipCommitAfterApply, magitWipCommitBeforeChange, magitWipCommitCommand } from "magit-wip";
 import { magitProcessBuffer, magitProcessBufferCommand, magitRunGit, magitRunGitWithInput, magitStartGitWith, magitStartProcess } from "magit-process";
 
 // Faces.
@@ -172,6 +173,9 @@ function targets(): { section: Section; values: FileValue[] } | undefined {
   return { section: s, values: [] };
 }
 
+/** The files VALUES are of, for the wip commits made before and after applying, as magit-apply's. */
+const applyFiles = (values: FileValue[]): string[] => [...new Set(values.map((v) => v.file))];
+
 /** The patch for a hunk, with its file's header, for git apply. */
 function hunkPatch(v: FileValue): string {
   const header = v.diff!.header.filter((l) => /^(diff --git|--- |\+\+\+ |new file mode|deleted file mode|old mode|new mode|index )/.test(l));
@@ -222,6 +226,8 @@ export const magitStage = e8.defineCommand({
     const t = targets();
     if (!t || t.values.length === 0) e8.userError("Nothing to stage");
     const lines = regionLines(t.section);
+    const files = applyFiles(t.values);
+    magitWipCommitBeforeChange(files, " before stage");
     for (const v of t.values) {
       if (v.kind === "staged") e8.userError("Already staged");
       if (v.hunk && lines) {
@@ -230,6 +236,7 @@ export const magitStage = e8.defineCommand({
       } else if (v.hunk) runGit(["apply", "--cached", "-p0", "--ignore-space-change", "-"], hunkPatch(v));
       else runGit(["add", "--", v.file]);
     }
+    magitWipCommitAfterApply(files, " after stage");
   },
 });
 
@@ -240,6 +247,8 @@ export const magitUnstage = e8.defineCommand({
     const t = targets();
     if (!t || t.values.length === 0) e8.userError("Nothing to unstage");
     const lines = regionLines(t.section);
+    const files = applyFiles(t.values);
+    magitWipCommitBeforeChange(files, " before unstage");
     for (const v of t.values) {
       if (v.kind !== "staged") e8.userError("Already unstaged");
       if (v.hunk && lines) {
@@ -249,6 +258,7 @@ export const magitUnstage = e8.defineCommand({
       else if (hasCommits()) runGit(["reset", "-q", "--", v.file]);
       else runGit(["rm", "--cached", "-q", "--", v.file]);
     }
+    magitWipCommitAfterApply(files, " after unstage");
   },
 });
 
@@ -256,13 +266,21 @@ const stageModified = e8.defineCommand({
   name: "magit-stage-modified",
   doc: "Stage all changes to files tracked in the repository; with a prefix argument, untracked files too.",
   params: [{ name: "all", kind: "prefix" }],
-  run: (all: e8.Value) => void runGit(["add", truthy(all) ? "--all" : "-u", "."]),
+  run: (all: e8.Value) => {
+    magitWipCommitBeforeChange(undefined, " before stage");
+    runGit(["add", truthy(all) ? "--all" : "-u", "."]);
+    magitWipCommitAfterApply(undefined, " after stage");
+  },
 });
 
 const unstageAll = e8.defineCommand({
   name: "magit-unstage-all",
   doc: "Remove all changes from the staging area.",
-  run: () => void runGit(hasCommits() ? ["reset", "-q", "HEAD", "--"] : ["rm", "--cached", "-r", "-q", "."]),
+  run: () => {
+    magitWipCommitBeforeChange(undefined, " before unstage");
+    runGit(hasCommits() ? ["reset", "-q", "HEAD", "--"] : ["rm", "--cached", "-r", "-q", "."]);
+    magitWipCommitAfterApply(undefined, " after unstage");
+  },
 });
 
 export const magitDiscard = e8.defineCommand({
@@ -275,6 +293,8 @@ export const magitDiscard = e8.defineCommand({
     const kind = t.values[0].kind;
     const verb = kind === "untracked" ? "Delete" : "Discard";
     if (!e8.yOrNP(`${verb} ${what}? `)) e8.userError("Abort");
+    const files = applyFiles(t.values);
+    magitWipCommitBeforeChange(files, " before discard");
     for (const v of t.values) {
       if (v.kind === "untracked") {
         e8.deleteFile(e8.expandFileName(v.file, repo()));
@@ -288,6 +308,7 @@ export const magitDiscard = e8.defineCommand({
         runGit(["checkout", "--", v.file]);
       }
     }
+    magitWipCommitAfterApply(files, " after discard");
   },
 });
 
@@ -579,6 +600,7 @@ const resetCommand = (mode: string, doc: string) =>
     run: () => {
       const s = currentSection();
       const def = s?.type === "commit" ? String(s.value) : "HEAD";
+      magitWipCommitBeforeChange(undefined, " before reset");
       runGit(["reset", `--${mode}`, readBranch(`${mode[0].toUpperCase()}${mode.slice(1)} reset ${currentBranch() ?? "HEAD"} to`, [...localBranches(), ...remoteBranches()], def)]);
     },
   });
@@ -1142,6 +1164,7 @@ const logMenu = transientDefinePrefix("magit-log", {
             ["H", "HEAD", "magit-reflog-head"],
           ],
         },
+        { description: "Wiplog", if: magitAnyWipModeEnabledP, items: [["i", "index", "magit-wip-log-index"], ["w", "worktree", "magit-wip-log-worktree"]] },
         { description: "Other", items: [["s", "shortlog", shortlog]] },
       ],
     },
@@ -1296,15 +1319,7 @@ const snapshot = (name: string, doc: string, extra: string[]) =>
       runGit(["stash", "store", "-m", `Snapshot of ${branchOrHead()}`, hash]);
     },
   });
-const stashToWip = e8.defineCommand({
-  name: "magit-wip-commit",
-  doc: "Commit the working tree's changes to a work-in-progress ref, refs/wip/wtree/refs/heads/BRANCH.",
-  run: () => {
-    const hash = gitOutput(["stash", "create"]).output.trim();
-    if (hash === "") e8.userError("No local changes to save");
-    runGit(["update-ref", `refs/wip/wtree/refs/heads/${branchOrHead()}`, hash]);
-  },
-});
+const stashToWip = magitWipCommitCommand;
 const stashList = "magit-stash-list";
 const stashBranch = e8.defineCommand({
   name: "magit-stash-branch",
