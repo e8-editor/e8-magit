@@ -84,6 +84,7 @@ import "git-rebase";
 import { magitAm, magitCherryApply, magitCherryPick, magitRebase, magitRevert, magitRevertNoCommit } from "magit-sequence";
 import { magitTag } from "magit-tag";
 import { magitBisect } from "magit-bisect";
+import { magitShowRefs } from "magit-refs";
 import { magitRemote } from "magit-remote";
 import { magitClone } from "magit-clone";
 import { magitGitMergetool, magitRunGitGui, magitRunGitk, magitRunGitkAll, magitRunGitkBranches } from "magit-extras";
@@ -1376,34 +1377,6 @@ const gitignore = e8.defineCommand({
     refreshAll();
   },
 });
-const showRefs = e8.defineCommand({
-  name: "magit-show-refs",
-  doc: "List the branches and tags, with their commits.",
-  run: () => {
-    const dir = repo();
-    setupBuffer(`magit-refs: ${repoName(dir)}`, magitLogMode, "refs", () =>
-      insertRoot("refbuf", () => {
-        for (const [title, pattern] of [
-          ["Branches", "refs/heads"],
-          ["Remote branches", "refs/remotes"],
-          ["Tags", "refs/tags"],
-        ] as const) {
-          const refs = gitLines(["for-each-ref", "--format=%(refname:short)%00%(objectname:short)%00%(subject)", pattern]);
-          if (refs.length === 0) continue;
-          insertSection("refs", title, false, () => {
-            insertHeading(face(title, "magit-section-heading"), "\n");
-            for (const r of refs) {
-              const [name, hash, subject] = r.split("\0");
-              insertSection("commit", hash, false, () => insertHeading("  ", face(name.padEnd(20), pattern === "refs/remotes" ? "magit-branch-remote" : pattern === "refs/tags" ? "magit-tag" : "magit-branch-local"), " ", face(hash, "magit-hash"), " ", subject, "\n"));
-            }
-            e8.insert("\n");
-          });
-        }
-      }),
-    );
-    e8.gotoChar(0);
-  },
-});
 const cherries = "magit-cherry";
 const formatPatches = e8.defineCommand({
   name: "magit-format-patch",
@@ -1539,7 +1512,7 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
             ["w", "Apply patches", magitAm],
             ["W", "Format patches", formatPatches],
             ["X", "Reset", resetMenu],
-            ["y", "Show Refs", showRefs],
+            ["y", "Show Refs", magitShowRefs],
             ["Y", "Cherries", cherries],
             ["z", "Stash", stashMenu],
             ["Z", "Worktree", notYet("magit-worktree", "Worktrees")],
@@ -1604,6 +1577,7 @@ const bindings: [string, e8.DefinedCommand | string][] = [
   ["Q", magitGitCommand],
   ["t", magitTag],
   ["B", magitBisect],
+  ["y", magitShowRefs],
   ["!", magitRun],
   ["l", logMenu],
   ["d", diffMenu],

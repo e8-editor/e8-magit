@@ -685,7 +685,7 @@ export const magitListModulePaths = (): string[] =>
 // The labels of refs, after magit-format-ref-labels.
 
 /** The ref namespaces and their faces, as magit-ref-namespaces. */
-const refNamespaces: [RegExp, string][] = [
+export const magitRefNamespaces: [RegExp, string][] = [
   [/^tag: refs\/tags\/(.+)$/, "magit-tag"],
   [/^refs\/tags\/(.+)$/, "magit-tag"],
   [/^HEAD$/, "magit-head"],
@@ -722,7 +722,7 @@ export function magitFormatRefLabels(decorations: string): e8.PropertizedString 
   const other: e8.PropertizedString[] = [];
   const remoteFaces = new Map<string, string>();
   for (const ref of refs) {
-    const found = refNamespaces.find(([re]) => re.test(ref));
+    const found = magitRefNamespaces.find(([re]) => re.test(ref));
     const face = found?.[1] ?? "magit-refname";
     const m = found?.[0].exec(ref);
     let name = m?.[1] ?? ref;
