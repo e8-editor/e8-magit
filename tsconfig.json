@@ -10,7 +10,7 @@
     "types": [],
     "moduleDetection": "force",
     "module": "preserve",
-    "paths": { "*": ["./*", "./.e8/shipped/*", "./.e8/deps/e8-magit-section/*", "./.e8/deps/e8-with-editor/*"] },
+    "paths": { "*": ["./*", "./test/*", "./.e8/shipped/*", "./.e8/deps/e8-magit-section/*", "./.e8/deps/e8-with-editor/*"] },
     // E8 erases types rather than compiling them, so enums and the like are not allowed.
     "erasableSyntaxOnly": true
   },

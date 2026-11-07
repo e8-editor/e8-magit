@@ -2,7 +2,7 @@
 
 Git in a status buffer of sections, for [E8](https://github.com/e8-editor/e8): `C-x g` shows the repository, and single keys stage, unstage, discard, commit, branch, push, pull, rebase and stash, with Magit's menus. A port of [Magit](https://github.com/magit/magit) 4.4.0.
 
-**This is a subset of Magit.** The status buffer, staging, committing, branching, pushing and pulling, the log, diffs, stashing and interactive rebasing work, and every menu shows what Magit's does; but blame, bisect, worktrees, submodules, subtrees, notes and ediff are not there, and many of the log's and diff's options do nothing yet. [What works](#what-works) and [what is missing](#what-is-missing) below say which, and [docs/plan.md](docs/plan.md) is the plan for porting the rest, step by step. Its versions start at v0.1.0.
+**This is a subset of Magit.** The status buffer, staging, committing, branching, pushing and pulling, the log, diffs, stashing and interactive rebasing work, and every menu shows what Magit's does; but blame and ediff are not there, and many of the log's and diff's options do nothing yet. [What works](#what-works) and [what is missing](#what-is-missing) below say which, and [docs/plan.md](docs/plan.md) is the plan for porting the rest, step by step. Its versions start at v0.1.0.
 
 ## Installing
 
@@ -34,6 +34,7 @@ E8 installs it at its newest version tag into `repos/` beside `init.ts`, with [e
 | `c`, `b`, `P`, `F`, `f`, `m`, `r`, `X`, `z`, `l`, `d` | the commit, branch, push, pull, fetch, merge, rebase, reset, stash, log and diff menus |
 | `A`, `V`, `w` | the cherry-pick, revert and apply-patches (git am) menus |
 | `t`, `M`, `!`, `C`, `I`, `Q` | the tag, remote and run menus, clone, init, and a git command |
+| `y`, `i`, `T`, `W`, `B`, `Z`, `o`, `O` | the references buffer, and the gitignore, notes, patch, bisect, worktree, submodule and subtree menus |
 
 Commit messages are written in a `COMMIT_EDITMSG` buffer in `git-commit-mode`, and an interactive rebase's todo list in `git-rebase-mode`; `C-c C-c` finishes and `C-c C-k` gives up. git runs E8 as its editor for them through with-editor, so git's own template and hooks apply.
 
@@ -58,11 +59,14 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - **Tags** (`t`): create one, a release tag named from the release commit or the last release, delete, and prune those that differ from a remote's.
 - **Remotes** (`M`): the current remote's url, fetch, pushurl, push and tagOpt variables, set in the menu; add (offering `remote.pushDefault`), rename and remove (the push variables follow), prune stale branches and refspecs, unshallow, configure another remote, and update the default branch.
 - **Clone** (`C`, or `C-u C` for the menu: regular, shallow, bare, mirror, sparse), from a url, a name such as `gh:owner/repo`, a path, a local url or a bundle; **init** (`I`); and **run** (`!`: a git or shell command, in the repository or the working directory, gitk, git gui, git mergetool).
-- From the dispatch menu, ignore, refs, cherries and format patches, one command each.
+- **References** (`y`, `C-u y` for the menu): the local branches with their upstreams and how far ahead and behind, each remote's branches and the tags, each expanding to the commits the focused ref lacks.
+- **Ignoring** (`i`): at the top, in a subdirectory, privately or for all repositories; skip-worktree and assume-unchanged. **Notes** (`T`): edit, remove, merge and prune, and the notes refs. **Patches** (`W`): create with git format-patch and its options, apply, save a diff. **Bisect** (`B`): start, good, bad, mark, skip, run a script, reset, with the bisect sections in the status buffer.
+- **Worktrees** (`Z`): check out, branch, move, delete, visit, and their sections. **Submodules** (`o`): add, register, populate, update, synchronize, unpopulate, remove, list, and the module sections. **Subtrees** (`O`): import (add, merge, pull) and export (push, split).
+- From the dispatch menu, cherries, one command.
 
 ## What is missing
 
-- **Not there at all**: blame; bisect; worktrees; submodules; subtrees; notes; ediff; applying or reversing a change from elsewhere (`a`, `v`); and `magit-file-dispatch`. Their keys in the menus say so.
+- **Not there at all**: blame; ediff; applying or reversing a change from elsewhere (`a`, `v`); and `magit-file-dispatch`. Their keys in the menus say so.
 - Suffixes Magit puts above level 4 (signing, `--exec`, a rebase's strategy, some of clone's) are left out of the menus until E8's transient has levels (E8 0.5).
 - Only programs E8 starts can use E8 as their editor (see e8-with-editor).
 

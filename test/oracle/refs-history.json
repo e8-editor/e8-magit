@@ -1,0 +1,12 @@
+{
+  "buffer": "magit-refs: repo",
+  "point": 1,
+  "text": "Branches (1)\n@ main            Three\n\n",
+  "faces": [
+    "1:0-8 magit-section-heading",
+    "1:8-10 magit-section-child-count",
+    "1:11-12 magit-section-child-count",
+    "2:0-1 magit-section-heading",
+    "2:2-6 magit-branch-local magit-branch-current"
+  ]
+}

@@ -42,5 +42,8 @@
   {"name": "log-history-move-to-parent", "fixture": "history", "keys": "M-x magit-log-current RET M-x magit-log-move-to-parent RET", "e8": "faces"},
   {"name": "reflog-head-remote", "fixture": "remote", "keys": "M-x magit-reflog-head RET", "e8": "faces"},
   {"name": "status-merge-level-4", "fixture": "merge", "keys": "M-4", "e8": "faces"},
-  {"name": "status-rebase-level-4", "fixture": "rebase", "keys": "M-4", "e8": "faces"}
+  {"name": "status-rebase-level-4", "fixture": "rebase", "keys": "M-4", "e8": "faces"},
+  {"name": "refs-remote", "fixture": "remote", "keys": "y", "e8": "faces"},
+  {"name": "refs-remote-level-4", "fixture": "remote", "keys": "y M-4", "e8": "faces"},
+  {"name": "refs-history", "fixture": "history", "keys": "y", "e8": "faces"}
 ]

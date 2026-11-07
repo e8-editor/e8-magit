@@ -676,16 +676,20 @@ export function magitListWorktrees(): { path: string; commit?: string; branch?: 
   }
   return out;
 }
-/** The submodules' paths, as magit-list-module-paths. */
-export const magitListModulePaths = (): string[] =>
-  magitGitLines("submodule--helper", "list")
-    .map((l) => l.split("\t")[1])
+/** The submodules' paths, the gitlinks git ls-files lists, as magit-list-module-paths. */
+export function magitListModulePaths(): string[] {
+  const top = magitToplevel();
+  if (!top) return [];
+  return magitGitRun(["ls-files", "-z", "--stage"], { dir: top })
+    .output.split("\0")
+    .map((l) => /^160000 [0-9a-z]{40,} 0\t(.+)$/.exec(l)?.[1])
     .filter((p): p is string => p !== undefined);
+}
 
 // The labels of refs, after magit-format-ref-labels.
 
 /** The ref namespaces and their faces, as magit-ref-namespaces. */
-const refNamespaces: [RegExp, string][] = [
+export const magitRefNamespaces: [RegExp, string][] = [
   [/^tag: refs\/tags\/(.+)$/, "magit-tag"],
   [/^refs\/tags\/(.+)$/, "magit-tag"],
   [/^HEAD$/, "magit-head"],
@@ -722,7 +726,7 @@ export function magitFormatRefLabels(decorations: string): e8.PropertizedString 
   const other: e8.PropertizedString[] = [];
   const remoteFaces = new Map<string, string>();
   for (const ref of refs) {
-    const found = refNamespaces.find(([re]) => re.test(ref));
+    const found = magitRefNamespaces.find(([re]) => re.test(ref));
     const face = found?.[1] ?? "magit-refname";
     const m = found?.[0].exec(ref);
     let name = m?.[1] ?? ref;
