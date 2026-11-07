@@ -141,6 +141,7 @@ import { magitClone } from "magit-clone";
 import "magit-blame";
 import { magitGitMergetool, magitPopRevisionStackCommand, magitRunGitGui, magitRunGitk, magitRunGitkAll, magitRunGitkBranches } from "magit-extras";
 import "magit-dired";
+import { magitEdiff, magitEdiffDwimCommand } from "magit-ediff";
 import "magit-autorevert";
 import "magit-bookmark";
 import { magitAnyWipModeEnabledP, magitWipCommitAfterApply, magitWipCommitBeforeChange, magitWipCommitCommand } from "magit-wip";
@@ -748,10 +749,6 @@ const gitCommand = (name: string, doc: string, args: () => string[] | undefined)
       if (a) runGit(a);
     },
   });
-
-/** A command E8's Magit does not have yet, which says so. */
-const notYet = (name: string, what: string) =>
-  e8.defineCommand({ name, doc: `${what}: not in E8's Magit yet.`, run: () => e8.userError(`${what} is not in E8's Magit yet`) });
 
 /** The commit at point, or one read from the log, as magit-read-branch-or-commit. */
 function readCommit(prompt: string): string {
@@ -1777,8 +1774,8 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
             ["C", "Clone", magitClone],
             ["d", "Diff", diffMenu],
             ["D", "Diff (change)", diffMenu],
-            ["e", "Ediff (dwim)", notYet("magit-ediff-dwim", "Ediff")],
-            ["E", "Ediff", notYet("magit-ediff", "Ediff")],
+            ["e", "Ediff (dwim)", magitEdiffDwimCommand],
+            ["E", "Ediff", magitEdiff],
             ["f", "Fetch", fetchMenu],
             ["F", "Pull", pullMenu],
             ["h", "Help", help],
@@ -1888,6 +1885,8 @@ const bindings: [string, e8.DefinedCommand | string][] = [
   ["!", magitRun],
   ["l", logMenu],
   ["d", diffMenu],
+  ["e", magitEdiffDwimCommand],
+  ["E", magitEdiff],
   ["h", dispatch],
   ["?", dispatch],
   ["q", magitModeBuryBuffer],

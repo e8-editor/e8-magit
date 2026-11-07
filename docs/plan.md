@@ -21,7 +21,7 @@ Sizes are the Lisp ported, from `wc -l` of Magit 4.4.0's `lisp/`; the port is ab
 | 12 | Blame | 1,000 | done: magit-blame.ts, with magit-edit-line-commit and magit-diff-edit-hunk-commit; each chunk's overlays in all four styles, removal and reverse match Magit's (test/oracle/blame.json) |
 | 13 | Applying from elsewhere, conflicts, the rest of magit-apply.el | 800 | done: magit-apply.ts, staging, unstaging and discarding moved there from magit.ts; smerge's keep rules ported in it, as E8 has no smerge-mode; `x` and `magit-checkout-stage` beside |
 | 14 | Extras: wip, autorevert, bookmarks, repositories, sparse checkout, info | 2,100 | done: magit-extras.ts, magit-dired.ts, magit-wip.ts, magit-autorevert.ts, magit-bookmark.ts (waiting on E8 bookmark records), magit-repos.ts, magit-sparse-checkout.ts, display and refresh in magit-mode.ts |
-| 15 | Ediff: an `e8-ediff` package, then magit-ediff.el | 600 + ediff | not started |
+| 15 | Ediff: an `e8-ediff` package, then magit-ediff.el | 600 + ediff | done: ediff went into E8 itself (packages/ediff.ts, E8 0.5.0) rather than a package of its own; magit-ediff.ts with the `E` menu (recorded) and `e`, staging, resolving (smerge-ediff's part ported in it, as E8 has no smerge-mode), comparing and showing |
 | 16 | The parity audit: every command, option, face and key | | not started |
 
 ## How a step is done

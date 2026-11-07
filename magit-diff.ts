@@ -1341,14 +1341,14 @@ export const magitDiffDwim = e8.defineCommand({
 });
 
 /** Reads a range or commit for a diff, as magit-diff-read-range-or-commit. */
-function readRangeOrCommit(prompt: string): string {
+export function magitDiffReadRangeOrCommit(prompt: string, secondaryDefault?: string): string {
   const commits = magitRegionValues(["commit", "branch"], true) as string[] | undefined;
   if (commits && commits.length > 1) {
     e8.deactivateMark();
     return `${commits[commits.length - 1]}..${commits[0]}`;
   }
   const target = magitDiffDwimTarget();
-  const def = Array.isArray(target) && target[0] === "commit" ? `${target[1]}^..${target[1]}` : typeof target === "string" && !["staged", "unstaged", "unmerged", "undefined"].includes(target) ? target : magitGetCurrentBranch();
+  const def = Array.isArray(target) && target[0] === "commit" ? `${target[1]}^..${target[1]}` : typeof target === "string" && !["staged", "unstaged", "unmerged", "undefined"].includes(target) ? target : (secondaryDefault ?? magitGetCurrentBranch());
   return magitReadRange(prompt, def);
 }
 
@@ -1357,7 +1357,7 @@ e8.defineCommand({
   doc: "Show differences between two commits: a range, or a revision against the working tree.",
   run: () => {
     const [args, files] = magitDiffArguments();
-    magitDiffSetupBuffer(readRangeOrCommit("Diff for range"), undefined, args, files, "committed");
+    magitDiffSetupBuffer(magitDiffReadRangeOrCommit("Diff for range"), undefined, args, files, "committed");
   },
 });
 e8.defineCommand({
