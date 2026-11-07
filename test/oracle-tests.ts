@@ -10,6 +10,7 @@
 // E8_ORACLE_REPORT=1 prints, for every case, what differs.
 
 import { ertDeftest, should, shouldEqual } from "ert";
+import { recordBuffer, testFile, type Recording } from "magit-test-helpers";
 
 e8.require("magit");
 
@@ -19,21 +20,6 @@ interface Case {
   keys: string;
   /** How much of the recording E8 matches: "faces", "text", or "pending". */
   e8?: "faces" | "text" | "pending";
-}
-
-interface Recording {
-  buffer: string;
-  point: number;
-  text: string;
-  faces: string[];
-}
-
-/** A file of the package's tests, found along load-path. */
-export function testFile(name: string): string {
-  const dirs = (e8.variable("load-path") as string[]) ?? [];
-  const file = dirs.map((d) => e8.expandFileName(`test/${name}`, d)).find((f) => e8.fileExistsP(f));
-  should(file !== undefined, `test/${name} is found along load-path`);
-  return file!;
 }
 
 /** Makes fixture NAME (test/fixtures.sh) in a new temporary directory; gives the directory, with a slash. */
@@ -60,54 +46,6 @@ export function withFixture(name: string, body: (repo: string) => void): void {
     }
     e8.deleteDirectory(dir, { recursive: true });
   }
-}
-
-/** A face property's value as the recording names it: a name, or names joined by spaces. */
-function faceName(f: unknown): string | undefined {
-  if (f === undefined || f === null || f === false) return undefined;
-  if (typeof f === "string") return f;
-  if (Array.isArray(f)) {
-    if (typeof f[0] === "string" && f[0].startsWith(":")) return "anonymous";
-    const names = f.map(faceName).filter((n): n is string => n !== undefined);
-    return names.length > 0 ? names.join(" ") : undefined;
-  }
-  return "anonymous";
-}
-
-/** The current buffer as test/record.el records Magit's: name, point's line, visible text and its faces as runs. */
-export function recordBuffer(): Recording {
-  let text = "";
-  const faces: string[] = [];
-  let line = 1;
-  let col = 0;
-  let run: [number, number, number, string] | undefined;
-  let pointLine: number | undefined;
-  const point = e8.windowPoint();
-  const flush = () => {
-    if (run) faces.push(`${run[0]}:${run[1]}-${run[2]} ${run[3]}`);
-    run = undefined;
-  };
-  for (let p = e8.pointMin(); p < e8.pointMax(); p++) {
-    if (p === point) pointLine = line;
-    if (e8.invisibleP(p)) continue;
-    const c = e8.charAfter(p)!;
-    const f = faceName(e8.getTextProperty(p, "font-lock-face") ?? e8.getTextProperty(p, "face"));
-    if (c === "\n") {
-      flush();
-      line++;
-      col = 0;
-    } else {
-      if (run && run[3] === f && run[2] === col) run[2] = col + 1;
-      else {
-        flush();
-        if (f !== undefined) run = [line, col, col + 1, f];
-      }
-      col++;
-    }
-    text += c;
-  }
-  flush();
-  return { buffer: e8.bufferName(), point: pointLine ?? line, text, faces };
 }
 
 /** What differs between E8's buffer and the recording, at a case's level: nothing if they match. */

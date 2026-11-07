@@ -14,10 +14,10 @@
 // refreshes, $ shows the git commands run, q quits. The prefix keys open
 // transient menus, as Magit's do.
 //
-// Commit messages are written in a COMMIT_EDITMSG buffer, C-c C-c to
-// commit and C-c C-k to give up, as git-commit.el's are, and rebase todo
-// lists in git-rebase-mode: git runs E8 as its editor through with-editor,
-// as Magit has it run Emacs.
+// Commit messages are written in a COMMIT_EDITMSG buffer, in
+// git-commit-mode (git-commit.ts), C-c C-c to commit and C-c C-k to give
+// up, and rebase todo lists in git-rebase-mode: git runs E8 as its
+// editor through with-editor, as Magit has it run Emacs.
 //
 // Copyright (C) 2008-2025 The Magit Project Contributors
 // Copyright (C) 2026 The E8 contributors
@@ -81,6 +81,7 @@ import {
 import { magitInitCommand, magitStatus } from "magit-status";
 import "magit-log";
 import "git-rebase";
+import "git-commit";
 import { magitAm, magitCherryApply, magitCherryPick, magitRebase, magitRevert, magitRevertNoCommit } from "magit-sequence";
 import { magitTag } from "magit-tag";
 import { magitBisect } from "magit-bisect";
@@ -324,11 +325,6 @@ export const magitVisitThing = e8.defineCommand({
 
 // Committing, after magit-commit.el and git-commit.el.
 
-e8.defineVariable({ name: "git-commit-summary-max-length", doc: "Column beyond which characters in the summary line are highlighted.", value: 68 });
-e8.defineFace({ name: "git-commit-summary", doc: "Face used for the summary in commit messages.", attributes: { inherit: "font-lock-type-face" } });
-e8.defineFace({ name: "git-commit-comment-heading", doc: "Face used for headings in commit message comments.", attributes: { inherit: "git-commit-keyword" } });
-e8.defineFace({ name: "git-commit-keyword", doc: "Face used for keywords in commit messages.", attributes: { inherit: "font-lock-string-face" } });
-
 /** The diff a commit makes, shown beside its message, as magit-commit-diff; the buffer, to take away when done. */
 let commitDiff: string | undefined;
 /** Whether the commit being written amends the last one, for the diff to show. */
@@ -365,38 +361,8 @@ e8.addHook("with-editor-post-finish-hook", hideCommitDiff);
 e8.addHook("with-editor-post-cancel-hook", hideCommitDiff);
 e8.setDefault("with-editor-file-modes", [
   ...((e8.variable("with-editor-file-modes") as string[][] | null) ?? []),
-  ["/\\(?:COMMIT\\|MERGE\\|TAG\\)_EDITMSG\\'", "git-commit-mode"],
   ["/git-rebase-todo\\'", "git-rebase-mode"],
 ]);
-
-/** Highlights the summary line and comments, as git-commit-mode's font-lock keywords. */
-function fontifyCommit(start: number, end: number): void {
-  e8.withSilentModifications(() => {
-    for (let line = e8.lineOf(start); line <= e8.lineOf(Math.max(start, end - 1)); line++) {
-      const ls = e8.lineStart(line);
-      const le = e8.lineEnd(line);
-      const text = e8.lineText(line);
-      if (text.startsWith("#")) e8.putTextProperty(ls, le, "face", "font-lock-comment-face");
-      else if (line === 0) {
-        const max = Number(e8.variable("git-commit-summary-max-length") ?? 68);
-        e8.putTextProperty(ls, Math.min(le, ls + max), "face", "git-commit-summary");
-        if (le > ls + max) e8.putTextProperty(ls + max, le, "face", "font-lock-warning-face");
-      }
-    }
-  });
-}
-
-export const gitCommitMode = e8.defineMajorMode({
-  name: "git-commit-mode",
-  modeName: "Git-Commit",
-  parent: "text-mode",
-  doc: "Major mode for editing git commit messages: C-c C-c commits, C-c C-k cancels.",
-  setup: () => {
-    e8.makeLocalVariable("fill-column");
-    e8.setVariable("fill-column", 72);
-    e8.addHook("jit-lock-functions", fontifyCommit, { local: true });
-  },
-});
 
 const commitArgs = (): string[] => transientArgs("magit-commit");
 

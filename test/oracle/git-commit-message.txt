@@ -1,0 +1,23 @@
+[feat] A summary line that runs on far beyond the sixty-eight characters allowed
+Second line that is not empty
+
+Body text, with [a keyword] in it.
+Author: Someone
+commit 0123abcd
+
+Signed-off-by: Tester <t@example.com>
+Fixes: something
+Co-authored-by: Someone Else <se@example.com>
+# Please enter the commit message for your changes. Lines starting
+# with '#' will be ignored, and an empty message aborts the commit.
+#
+# On branch main
+# Your branch is ahead of 'origin/main' by 3 commits.
+#
+# Changes to be committed:
+#	modified:   b.txt
+#	new file:   c.txt
+#
+# Untracked files:
+#	d.txt
+#

@@ -14,7 +14,7 @@
 ;; ~/.emacs.d/elpaca/builds, each in a directory of its own name.  It was
 ;; recorded with Magit 4.4.0 in Emacs 30.
 ;;
-;; Two recordings:
+;; Three recordings:
 ;;
 ;; - test/menus.json: the menu each prefix key shows in the status buffer
 ;;   of the basic fixture, which magit-the-menus-show-as-magits-do
@@ -26,6 +26,10 @@
 ;;   the faces of that text as runs, and point's line.  The tests type
 ;;   the same keys in E8 and compare.  E8_ORACLE_ONLY=STRING records only
 ;;   the cases whose names have STRING.
+;;
+;; - test/oracle/git-commit-faces.json: the faces git-commit-setup gives
+;;   test/oracle/git-commit-message.txt as a COMMIT_EDITMSG, which
+;;   git-commit-faces-are-magits compares E8's with.
 
 (require 'json)
 (defvar mr-builds (file-name-as-directory (or (getenv "E8_ELPA_BUILDS") (expand-file-name "~/.emacs.d/elpaca/builds"))))
@@ -129,3 +133,26 @@
   (with-temp-file (expand-file-name "menus.json" mr-dir)
     (insert (json-encode (nreverse mr-menus)))
     (json-pretty-print-buffer)))
+
+;; test/oracle/git-commit-faces.json: the faces git-commit-setup gives
+;; test/oracle/git-commit-message.txt, visited as a repository's
+;; .git/COMMIT_EDITMSG, which git-commit-tests compares E8's with.
+(let ((only (getenv "E8_ORACLE_ONLY")))
+  (when (or (null only) (string-match-p (regexp-quote only) "git-commit-faces"))
+    (let* ((dir (mr-fixture "basic"))
+           (repo (expand-file-name "repo/" dir))
+           (default-directory repo)
+           (file (expand-file-name ".git/COMMIT_EDITMSG" repo)))
+      (message "Recording git-commit-faces")
+      (copy-file (expand-file-name "oracle/git-commit-message.txt" mr-dir) file t)
+      (with-current-buffer (find-file-noselect file)
+        (font-lock-ensure)
+        (let ((result (mr-buffer)))
+          (with-temp-file (expand-file-name "oracle/git-commit-faces.json" mr-dir)
+            (insert (json-encode result))
+            (json-pretty-print-buffer)
+            (goto-char (point-max))
+            (insert "\n")))
+        (set-buffer-modified-p nil)
+        (let ((kill-buffer-query-functions nil)) (kill-buffer)))
+      (delete-directory dir t))))
