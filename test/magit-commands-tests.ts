@@ -191,16 +191,20 @@ ertDeftest("magit-diff-refresh-changes-the-buffers-diff-arguments", () => {
     e8.call("switch-to-buffer", diff);
     e8.call("delete-other-windows");
     shouldEqual(String(e8.variable("major-mode")), "magit-diff-mode");
-    // Batch's frame is too short to show the menu, as for magit-diff's in
-    // magit-tests.ts: transient lays it out, then cannot show it.
+    // An E8 before 0.5 cannot show a menu taller than batch's frame: it
+    // lays it out, then fails, leaving no menu active. E8 0.5 fits it to
+    // the frame and leaves it active, for C-g to quit.
+    let tooTall = false;
     try {
       e8.executeKbdMacro("D");
     } catch (e) {
       should(String(e).includes("Size of window too small"), String(e));
+      tooTall = true;
     }
     const menu = e8.withCurrentBuffer(" *transient*", () => e8.bufferText());
     should(["Limit arguments", "Refresh", "buffer and set defaults", "hunk refinement", "buffer lock", "switch range type"].every((t) => menu.includes(t)), menu);
-    e8.call("kill-buffer", " *transient*");
+    if (tooTall) e8.call("kill-buffer", " *transient*");
+    else e8.executeKbdMacro("C-g");
     // Its g takes the menu's arguments, which start as the buffer's.
     e8.makeLocalVariable("magit-buffer-diff-args");
     e8.setVariable("magit-buffer-diff-args", ["--ignore-all-space", "--no-ext-diff"]);
