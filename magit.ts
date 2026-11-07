@@ -31,8 +31,25 @@
 import { currentSection, insertHeading, insertRoot, insertSection, magitSectionMode, sectionAt, sections, show, type Section } from "magit-section";
 import { transientArgs, transientDefinePrefix, type Group } from "transient";
 import { forwardLine, PerBuffer, truthy } from "subr";
-import { magitCompletingRead, prefixArgP } from "magit-base";
+import { magitCompletingRead, magitCompletingReadMultiple, magitFormatTimeString, prefixArgP } from "magit-base";
 import {
+  magitCommitP,
+  magitFileAtPoint,
+  magitFileRelativeName,
+  magitGet,
+  magitGetLocalUpstreamBranch,
+  magitGetPushBranch,
+  magitGitdir,
+  magitMainBranch,
+  magitModifiedFiles,
+  magitReadOtherBranchOrCommit,
+  magitReadOtherLocalBranch,
+  magitReadRemote,
+  magitReadShelvedBranch,
+  magitReadStartingPoint,
+  magitRevFormat,
+  magitRevParse,
+  magitSet,
   magitFormatRefLabels,
   magitGetCurrentBranch,
   magitGetPushRemote,
@@ -69,16 +86,25 @@ import {
   magitSetupBuffer,
   magitStatusMode,
   magitDeleteThing,
+  magitRefresh,
+  magitToggleBufferLock,
+  magitBrowseThing,
+  magitCopyThing,
+  magitEditThing,
 } from "magit-mode";
 import {
   magitDiffArguments,
+  magitDiffBufferArguments,
   magitDiffDwim,
+  magitDiffSetDefaultArguments,
   magitDiffSetupBuffer,
   magitInsertStagedChanges,
   magitInsertUnstagedChanges,
   magitShowCommit,
   magitShowCommitRev,
   magitStashShow,
+  magitDiffVisitFileNoselect,
+  magitWithTempPosition,
   type FileValue,
 } from "magit-diff";
 import { magitInitCommand, magitStatus } from "magit-status";
@@ -93,23 +119,23 @@ import {
   magitUnstageCommand,
   magitUnstageFilesCommand,
 } from "magit-apply";
-import "magit-log";
+import { magitLogSelect } from "magit-log";
 import "magit-bundle";
 import "git-rebase";
 import "git-commit";
-import { magitAm, magitCherryApply, magitCherryPick, magitRebase, magitRevert, magitRevertNoCommit } from "magit-sequence";
+import { magitAm, magitCherryApply, magitCherryPick, magitRebase, magitRebaseInteractiveAssert, magitRevert, magitRevertNoCommit } from "magit-sequence";
 import { magitTag } from "magit-tag";
 import { magitBisect } from "magit-bisect";
 import { magitShowRefs } from "magit-refs";
 import { magitFileCheckout, magitFileRename, magitFileUntrack } from "magit-files";
 import { magitGitignore } from "magit-gitignore";
-import { magitNotes } from "magit-notes";
+import { magitNotes, magitNotesReadRef } from "magit-notes";
 import { magitSubtree } from "magit-subtree";
 import "magit-repos";
 import "magit-sparse-checkout";
 import { magitSubmodule } from "magit-submodule";
 import { magitPatch } from "magit-patch";
-import { magitWorktree } from "magit-worktree";
+import { magitBranchReadArgs, magitWorktree } from "magit-worktree";
 import { magitRemote } from "magit-remote";
 import { magitClone } from "magit-clone";
 import "magit-blame";
@@ -118,7 +144,7 @@ import "magit-dired";
 import "magit-autorevert";
 import "magit-bookmark";
 import { magitAnyWipModeEnabledP, magitWipCommitAfterApply, magitWipCommitBeforeChange, magitWipCommitCommand } from "magit-wip";
-import { magitProcessBuffer, magitProcessBufferCommand, magitRunGit, magitRunGitWithInput, magitStartGitWith, magitStartProcess } from "magit-process";
+import { magitCallGit, magitGit, magitProcessBuffer, magitProcessBufferCommand, magitRunGit, magitRunGitAsync, magitRunGitWithEditor, magitRunGitWithInput, magitStartGitWith, magitStartProcess } from "magit-process";
 
 // Faces.
 
@@ -298,6 +324,143 @@ const commitReword = e8.defineCommand({
 });
 
 
+// Committing more, after magit-commit.el's magit-commit-absorb-modules,
+// magit-commit-reshelve and magit-commit-add-log.
+
+/** The submodules with commits not recorded in the superproject, as magit-list-modified-modules. */
+const modifiedModules = (): string[] => gitLines(["submodule", "status"]).flatMap((l) => /^\+([^ ]+) (.+) \(.+\)$/.exec(l)?.[2] ?? []);
+
+/**
+ * Spreads the modified modules across recent commits, as
+ * magit-commit-absorb-modules: for each, a fixup of the last commit since
+ * COMMIT that changed it, in PHASE run; in PHASE select, COMMIT is picked
+ * from a log first.
+ */
+export function magitCommitAbsorbModules(phase: "select" | "run", commitIn?: string): boolean | void {
+  const modules = modifiedModules();
+  if (modules.length === 0) e8.userError("There are no modified modules that could be absorbed");
+  const commit = commitIn ? magitRebaseInteractiveAssert(commitIn, true) : undefined;
+  if (commit && phase === "run") {
+    for (const module of modules) {
+      const msg = magitGitString("log", "-1", "--format=%s", `${commit}..`, "--", module);
+      if (msg) magitGit("commit", "-m", `fixup! ${msg}`, "--only", "--", module);
+    }
+    magitRefresh();
+    return true;
+  }
+  magitLogSelect((c) => void magitCommitAbsorbModules("run", c), undefined, undefined, undefined, undefined, commit);
+}
+e8.defineCommand({
+  name: "magit-commit-absorb-modules",
+  doc: "Spread modified modules across recent commits.",
+  run: () => void magitCommitAbsorbModules("select", upstreamOf(currentBranch())),
+});
+
+e8.defineVariable({ name: "magit--reshelve-history", doc: "The dates magit-commit-reshelve read.", value: [] });
+/** Whether the user is the author of REV, by name or email, as magit-rev-author-p. */
+const revAuthorP = (rev: string): boolean => magitGet("user.name") === magitRevFormat("%an", rev) || magitGet("user.email") === magitRevFormat("%ae", rev);
+/** Changes the committer date of the last commit to DATE, and with UPDATE-AUTHOR its author date too, as magit-commit-reshelve. */
+export function magitCommitReshelve(date: string, updateAuthor: boolean, args: string[] = []): void {
+  magitStartGitWith(["commit", "--amend", "--no-edit", updateAuthor ? `--date=${date}` : undefined, args], { env: { GIT_COMMITTER_DATE: date } });
+}
+e8.defineCommand({
+  name: "magit-commit-reshelve",
+  doc:
+    "Change committer (and possibly author) date of the last commit.\n\n" +
+    "The current time is used as the initial minibuffer input and the original author or committer date is available as the previous history element.\n\n" +
+    "Both the author and the committer dates are changed, unless one of the following is true, in which case only the committer date is updated:\n- You are not the author of the commit that is being reshelved.\n- The command was invoked with a prefix argument.\n- Non-interactively if UPDATE-AUTHOR is nil.",
+  params: [{ name: "prefix", kind: "prefix" }],
+  run: (prefix: e8.Value) => {
+    const updateAuthor = revAuthorP("HEAD") && !truthy(prefix);
+    const old = magitRevFormat(updateAuthor ? "%ad" : "%cd", "HEAD", "--date=format:%F %T %z");
+    if (old) e8.setVariable("magit--reshelve-history", [old, ...((e8.variable("magit--reshelve-history") as string[] | null) ?? [])]);
+    const date = e8.readString(updateAuthor ? "Change author and committer dates to: " : "Change committer date to: ", { initial: magitFormatTimeString("%F %T %z", Date.now() / 1000), history: "magit--reshelve-history" });
+    magitCommitReshelve(date, updateAuthor, commitArgs());
+  },
+});
+
+/** The buffer in which the repository's commit message is being written, as magit-commit-message-buffer. */
+export function magitCommitMessageBuffer(): string | undefined {
+  const top = magitToplevel();
+  return e8.bufferList().find((b) => e8.withCurrentBuffer(b, () => truthy(e8.variable("git-commit-mode")) && magitToplevel() === top));
+}
+
+e8.defineVariable({ name: "magit-commit-add-log-insert-function", doc: "Used by magit-commit-add-log to insert a single entry.", value: "magit-commit-add-log-insert" });
+
+/** An Emacs regexp matching TEXT literally, as regexp-quote. */
+const regexpQuote = (text: string): string => text.replace(/[[\].*+?^$\\]/g, "\\$&");
+
+/** Adds a stub for FILE, and DEFUN in it, to the commit message in BUFFER, before its comments, as magit-commit-add-log-insert. */
+export function magitCommitAddLogInsert(buffer: string, file: string, defunIn?: string): void {
+  let defun = defunIn;
+  e8.withCurrentBuffer(buffer, () => {
+    e8.gotoChar(e8.pointMax());
+    const comment = String(e8.variable("comment-start") ?? "#").trim() || "#";
+    while (e8.reSearchBackward(`^${regexpQuote(comment)}`, { noerror: true }) !== undefined);
+    e8.saveRestriction(() => {
+      e8.narrowToRegion(e8.pointMin(), e8.point());
+      if (e8.reSearchBackward(`* ${regexpQuote(file)}\\(?: (\\([^)]+\\))\\)?: `, { noerror: true }) !== undefined) {
+        if (e8.matchString(1) === defun) defun = undefined;
+        e8.reSearchForward(": ");
+      } else {
+        if (e8.reSearchBackward("^[*(].+\n", { noerror: true }) !== undefined) e8.gotoChar(e8.matchEnd(0)!);
+        while (e8.reSearchForward("^[^*\n].*\n", { noerror: true }) !== undefined);
+        if (defun) {
+          e8.insert(`* ${file} (${defun}): \n`);
+          defun = undefined;
+        } else e8.insert(`* ${file}: \n`);
+        e8.gotoChar(e8.point() - 1);
+        if (!e8.lookingAt("\n[\n\\']")) {
+          e8.insert("\n");
+          e8.gotoChar(e8.point() - 1);
+        }
+      }
+      if (defun) {
+        forwardLine(1);
+        const limit = e8.saveExcursion(() => e8.reSearchForward("^\\*", { noerror: true }));
+        const before = e8.bufferSubstringNoProperties(e8.lineBeginningPosition(), e8.point());
+        const there = before.endsWith(`(${defun}): `) || e8.reSearchForward(`^(${regexpQuote(defun)}): `, { bound: limit, noerror: true }) !== undefined;
+        if (!there) {
+          while (e8.reSearchForward("^[^*\n].*\n", { bound: limit, noerror: true }) !== undefined);
+          e8.insert(`(${defun}): \n`);
+          e8.gotoChar(e8.point() - 1);
+        }
+      }
+    });
+  });
+}
+e8.defun("magit-commit-add-log-insert", (buffer: string, file: string, defun?: string) => magitCommitAddLogInsert(buffer, file, defun ?? undefined));
+
+/**
+ * Adds a stub for the change at point to the commit message, starting a
+ * commit if none is in progress, as magit-commit-add-log; the function
+ * magit-commit-add-log-insert-function names inserts it.
+ */
+export function magitCommitAddLog(): void {
+  const hunk = currentSection()?.type === "hunk";
+  const file = magitFileAtPoint(true);
+  if (!file) e8.userError("No file at point");
+  const [buf, pos] = magitDiffVisitFileNoselect();
+  const add = (log: string) => {
+    const defun = hunk ? magitWithTempPosition(buf, pos, () => (e8.fboundp("which-function") ? (e8.funcall("which-function") as string | null | undefined) : undefined) ?? undefined) : undefined;
+    const fn = e8.variable("magit-commit-add-log-insert-function");
+    if (typeof fn === "function") (fn as (b: string, f: string, d?: string) => void)(log, magitFileRelativeName(file!) ?? file!, defun);
+    else e8.funcall(String(fn ?? "magit-commit-add-log-insert"), log, magitFileRelativeName(file!) ?? file!, defun ?? null);
+  };
+  const log = magitCommitMessageBuffer();
+  if (log) return add(log);
+  e8.call(commitCreate);
+  // The message buffer opens once git has started; wait for it, as Magit's sit-for loop does.
+  for (let i = 0; i < 400 && !magitCommitMessageBuffer(); i++) e8.acceptProcessOutput(undefined, 0.01);
+  const opened = magitCommitMessageBuffer();
+  if (opened) add(opened);
+}
+e8.defineCommand({
+  name: "magit-commit-add-log",
+  doc: "Add a stub for the current change into the commit message buffer.\nIf no commit is in progress, then initiate it.  Use the function specified by variable magit-commit-add-log-insert-function to actually insert the entry.",
+  run: () => magitCommitAddLog(),
+});
+
 // Branches, after magit-branch.el.
 
 const localBranches = magitListLocalBranchNames;
@@ -362,6 +525,79 @@ const branchRename = e8.defineCommand({
 });
 
 
+/**
+ * Checks out ARG, or creates and checks out a branch ARG starting at
+ * START-POINT, as magit-branch-or-checkout does once it has read them.
+ */
+export function magitBranchOrCheckout(arg: string, startPoint?: string): void {
+  const m = /^heads\/(.+)$/.exec(arg);
+  const rev = m ? m[1] : arg;
+  if (startPoint) runGit(["checkout", "-b", rev, startPoint]);
+  else runGit(["checkout", rev]);
+}
+const branchOrCheckout = e8.defineCommand({
+  name: "magit-branch-or-checkout",
+  doc: "Hybrid between magit-checkout and magit-branch-and-checkout.\n\nAsk the user for an existing branch or revision.  If the user input actually can be resolved as a branch or revision, then check that out, just like magit-checkout would.\n\nOtherwise create and checkout a new branch using the input as its name.  Before doing so read the starting-point for the new branch.  This is similar to what magit-branch-and-checkout does.",
+  run: () => {
+    const arg = magitReadOtherBranchOrCommit("Checkout");
+    magitBranchOrCheckout(arg, magitCommitP(arg) ? undefined : magitReadStartingPoint("Create and checkout branch", arg));
+  },
+});
+
+/** Creates and checks out an orphan BRANCH with contents from START-POINT, as magit-branch-orphan. */
+export function magitBranchOrphan(branch: string, startPoint: string): void {
+  runGit(["checkout", "--orphan", branch, startPoint]);
+}
+const branchOrphan = e8.defineCommand({
+  name: "magit-branch-orphan",
+  doc: "Create and checkout an orphan BRANCH with contents from revision START-POINT.",
+  run: () => {
+    const [branch, start] = magitBranchReadArgs("Create and checkout orphan branch");
+    magitBranchOrphan(branch, start);
+  },
+});
+
+/** Moves the reflog of ref OLD to that of ref NEW, as magit--rename-reflog-file. */
+function renameReflogFile(old: string, renamed: string): void {
+  const dir = magitGitdir();
+  if (!dir) return;
+  const from = e8.expandFileName(`logs/${old}`, dir);
+  const to = e8.expandFileName(`logs/${renamed}`, dir);
+  if (!e8.fileExistsP(from)) return;
+  e8.makeDirectory(e8.fileNameDirectory(to)!, { parents: true });
+  e8.renameFile(from, to, { okIfExists: true });
+}
+
+/** Shelves BRANCH: renames refs/heads/BRANCH to refs/shelved/YYYY-MM-DD-BRANCH, with its reflog, as magit-branch-shelve. */
+export function magitBranchShelve(branch: string): void {
+  const old = `refs/heads/${branch}`;
+  const shelved = `refs/shelved/${magitRevFormat("%cs", branch)}-${branch}`;
+  magitGit("update-ref", shelved, old, "");
+  renameReflogFile(old, shelved);
+  magitSet(undefined, "branch", branch, "pushRemote");
+  runGit(["branch", "-D", branch]);
+}
+const branchShelve = e8.defineCommand({
+  name: "magit-branch-shelve",
+  doc: "Shelve a BRANCH.\nRename \"refs/heads/BRANCH\" to \"refs/shelved/YYYY-MM-DD-BRANCH\", and also rename the respective reflog file.",
+  run: () => magitBranchShelve(magitReadOtherLocalBranch("Shelve branch")),
+});
+
+/** Unshelves BRANCH: renames refs/shelved/BRANCH to refs/heads/BRANCH, without the date it was shelved on, with its reflog, as magit-branch-unshelve. */
+export function magitBranchUnshelve(branch: string): void {
+  const old = `refs/shelved/${branch}`;
+  const unshelved = `refs/heads/${/^[0-9]{4}-[0-9]{2}-[0-9]{2}-/.test(branch) ? branch.slice(11) : branch}`;
+  magitGit("update-ref", unshelved, old, "");
+  renameReflogFile(old, unshelved);
+  runGit(["update-ref", "-d", old]);
+}
+const branchUnshelve = e8.defineCommand({
+  name: "magit-branch-unshelve",
+  doc: "Unshelve a BRANCH.\nRename \"refs/shelved/BRANCH\" to \"refs/heads/BRANCH\".  If BRANCH is prefixed with \"YYYY-MM-DD\", then drop that part of the name.  Also rename the respective reflog file.",
+  run: () => magitBranchUnshelve(magitReadShelvedBranch("Unshelve branch")),
+});
+void branchOrCheckout, branchOrphan, branchShelve, branchUnshelve;
+
 // Pushing, pulling and fetching, after magit-push.el, magit-pull.el and magit-fetch.el.
 
 const remotes = magitListRemotes;
@@ -416,6 +652,13 @@ const pullUpstream = e8.defineCommand({
 });
 
 
+/** Fetches from all remotes, with PRUNE pruning the remote branches gone from them, as magit-fetch-all-prune and magit-fetch-all-no-prune. */
+export function magitFetchAllRemotes(prune: boolean): void {
+  e8.runHooks("magit-credential-hook");
+  magitRunGitAsync("remote", "update", prune ? "--prune" : undefined);
+}
+e8.defineCommand({ name: "magit-fetch-all-prune", doc: "Fetch from all remotes, and prune.\nPrune remote tracking branches for branches that have been removed on the respective remote.", run: () => magitFetchAllRemotes(true) });
+e8.defineCommand({ name: "magit-fetch-all-no-prune", doc: "Fetch from all remotes.", run: () => magitFetchAllRemotes(false) });
 const fetchAll = e8.defineCommand({ name: "magit-fetch-all", doc: "Fetch from all remotes.", run: () => runGitAsync(["fetch", "--all", ...transientArgs("magit-fetch")], "Fetching all remotes") });
 const fetchUpstream = e8.defineCommand({
   name: "magit-fetch-from-upstream",
@@ -661,6 +904,20 @@ const setVariables = e8.defineCommand({
   name: "magit-branch-configure",
   doc: "Configure the current branch's upstream, push remote and rebasing.",
   run: () => e8.call(branchMenu),
+});
+
+/** Pushes the notes REF to REMOTE, as magit-push-notes-ref. */
+export function magitPushNotesRef(ref: string, remote: string, args: string[] = []): void {
+  e8.runHooks("magit-credential-hook");
+  magitRunGitAsync("push", remote, ref, args);
+}
+e8.defineCommand({
+  name: "magit-push-notes-ref",
+  doc: "Push a notes ref to another repository.",
+  run: () => {
+    const note = magitNotesReadRef("Push notes") ?? e8.userError("Nothing selected");
+    magitPushNotesRef(note, magitReadRemote(`Push ${note} to remote`, undefined, true), pushArgs());
+  },
 });
 
 const pushMenu = transientDefinePrefix("magit-push", {
@@ -1044,14 +1301,39 @@ const mergeAbsorb = e8.defineCommand({
     if (runGit(["merge", "--no-edit", ...transientArgs("magit-merge"), branch])) runGit(["branch", "-D", branch]);
   },
 });
+/**
+ * Merges the current branch into BRANCH and removes the former, as
+ * magit-merge-dissolve: before merging, force pushes it to its push-remote
+ * if the branch exists there; without a current branch, merges HEAD.
+ */
+export function magitMergeDissolve(branch: string, args: string[] = []): void {
+  const current = currentBranch();
+  const head = magitRevParse("HEAD");
+  if (magitCallGit("checkout", branch) !== 0) return;
+  if (current) magitMergeAbsorbInto(current, args);
+  else magitRunGitWithEditor("merge", args, head);
+}
+/** Merges BRANCH into the current branch and deletes it, after force pushing it to its push branch if that exists, as magit--merge-absorb. */
+function magitMergeAbsorbInto(branch: string, args: string[]): void {
+  if (branch === magitMainBranch() && !e8.yesOrNoP(`Do you really want to merge \`${branch}' into another branch? `)) e8.userError("Abort");
+  const target = magitGetPushBranch(branch, true);
+  if (target) {
+    const [remote, ...rest] = target.split("/");
+    if (magitCallGit("push", "--force-with-lease", remote, `${branch}:refs/heads/${rest.join("/")}`) !== 0) return magitRefresh();
+  }
+  if (magitCallGit("merge", args, "--no-edit", branch) === 0) {
+    magitSet(undefined, "branch", branch, "pushRemote");
+    magitCallGit("branch", "-D", branch);
+  }
+  magitRefresh();
+}
 const mergeDissolve = e8.defineCommand({
-  name: "magit-merge-into",
-  doc: "Merge the current branch into another and delete the current one.",
+  name: "magit-merge-dissolve",
+  doc: "Merge the current branch into BRANCH and remove the former.\n\nBefore merging, force push the source branch to its push-remote, provided the respective remote branch already exists, ensuring that the respective pull-request (if any) won't get stuck on some obsolete version of the commits that are being merged.  Finally if forge-branch-pullreq was used to create the merged branch, then also remove the respective remote branch.",
   run: () => {
-    const from = currentBranch();
-    if (!from) e8.userError("No branch is checked out");
-    const into = readBranch(`Merge ${from} into`, localBranches().filter((b) => b !== from), upstreamOf(from)?.replace(/^[^/]+\//, ""));
-    if (runGit(["checkout", into]) && runGit(["merge", "--no-edit", ...transientArgs("magit-merge"), from])) runGit(["branch", "-D", from]);
+    const branch = currentBranch();
+    const into = magitReadOtherLocalBranch(`Merge \`${branch ?? magitRevParse("HEAD")}' into`, undefined, branch ? magitGetLocalUpstreamBranch(branch) : undefined);
+    magitMergeDissolve(into, transientArgs("magit-merge"));
   },
 });
 const mergePreview = e8.defineCommand({
@@ -1126,9 +1408,8 @@ const diffWorktree = "magit-diff-working-tree";
 const showCommitCommand = magitShowCommit;
 const showStash = magitStashShow;
 
-const diffMenu = transientDefinePrefix("magit-diff", {
-  doc: "Show changes between different versions.",
-  groups: [
+/** The argument groups of the diff menus, as magit-diff-infix-arguments. */
+const diffInfixArguments: Group[] = [
     {
       description: "Limit arguments",
       items: [
@@ -1151,12 +1432,64 @@ const diffMenu = transientDefinePrefix("magit-diff", {
         ["=g", "Show signature", "--show-signature"],
       ],
     },
+];
+
+const diffMenu = transientDefinePrefix("magit-diff", {
+  doc: "Show changes between different versions.",
+  groups: [
+    ...diffInfixArguments,
     {
       description: "Actions",
       items: [
         { items: [["d", "Dwim", diffDwim], ["r", "Diff range", diffRange], ["p", "Diff paths", diffPaths]] },
         { items: [["u", "Diff unstaged", diffUnstaged], ["s", "Diff staged", diffStaged], ["w", "Diff worktree", diffWorktree]] },
         { items: [["c", "Show commit", showCommitCommand], ["t", "Show stash", showStash]] },
+      ],
+    },
+  ],
+});
+
+/** Uses the menu's diff arguments in the current buffer and refreshes it, as magit-diff-refresh does from its menu; with HOW, sets them as the mode's defaults too. */
+function diffRefreshApply(how?: "set" | "save"): void {
+  const [args, files] = magitDiffArguments(String(e8.variable("major-mode")));
+  e8.makeLocalVariable("magit-buffer-diff-args");
+  e8.setVariable("magit-buffer-diff-args", args);
+  e8.makeLocalVariable("magit-buffer-diff-files");
+  e8.setVariable("magit-buffer-diff-files", files);
+  if (how) magitDiffSetDefaultArguments(String(e8.variable("major-mode")), args);
+  magitRefresh();
+}
+
+/** The diff arguments the current buffer uses, the refresh menu's start value, as magit-diff-refresh-prefix's init value. */
+function bufferDiffArguments(): string[] {
+  const [args, files] = magitDiffBufferArguments(String(e8.variable("major-mode")));
+  return files.length > 0 ? [...args, `-- ${files.join(",")}`] : args;
+}
+
+export const magitDiffRefresh = transientDefinePrefix("magit-diff-refresh", {
+  doc: "Change the arguments used for the diff(s) in the current buffer.",
+  value: bufferDiffArguments,
+  groups: [
+    ...diffInfixArguments,
+    {
+      items: [
+        {
+          description: "Refresh",
+          items: [
+            ["g", "buffer", e8.defineCommand({ name: "magit-diff-refresh--buffer", doc: "Refresh the buffer with the menu's diff arguments.", run: () => diffRefreshApply() })],
+            ["s", "buffer and set defaults", e8.defineCommand({ name: "magit-diff-refresh--set", doc: "Refresh the buffer with the menu's diff arguments, and make them the defaults.", run: () => diffRefreshApply("set") })],
+            ["w", "buffer and save defaults", e8.defineCommand({ name: "magit-diff-refresh--save", doc: "Refresh the buffer with the menu's diff arguments, and make them the defaults.", run: () => diffRefreshApply("save") })],
+          ],
+        },
+        {
+          description: "Toggle",
+          items: [
+            ["t", "hunk refinement", "magit-diff-toggle-refine-hunk"],
+            ["F", "file filter", "magit-diff-toggle-file-filter"],
+            ["b", "buffer lock", magitToggleBufferLock, { ifMode: ["magit-diff-mode", "magit-revision-mode", "magit-stash-mode"] }],
+          ],
+        },
+        { description: "Do", if: () => String(e8.variable("major-mode")) === "magit-diff-mode", items: [["r", "switch range type", "magit-diff-switch-range-type"], ["f", "flip revisions", "magit-diff-flip-revs"]] },
       ],
     },
   ],
@@ -1208,6 +1541,28 @@ const stashFormatPatch = e8.defineCommand({
     e8.writeTextFile(file, out);
     e8.message(`Wrote ${file}`);
   },
+});
+
+/** Pushes a stash of FILES, or all changes, with ARGS, as magit-stash-push does from its menu. */
+export function magitStashPush(args: string[] = []): void {
+  const files = args.filter((a) => a.startsWith("-- ")).flatMap((a) => a.slice(3).split(","));
+  runGit(["stash", "push", ...args.filter((a) => !a.startsWith("-- ")), ...(files.length > 0 ? ["--", ...files] : [])]);
+}
+export const magitStashPushMenu = transientDefinePrefix("magit-stash-push", {
+  doc: "Create stash using \"git stash push\".\n\nThis differs from Magit's other stashing commands, which don't use \"git stash\" and are generally more flexible but don't allow specifying a list of files to be stashed.",
+  groups: [
+    {
+      description: "Arguments",
+      items: [
+        ["--", "Limit to files", "--", { class: "option", reader: (prompt, initial) => magitCompletingReadMultiple(prompt, magitModifiedFiles(), { initialInput: initial }).join(",") }],
+        ["-u", "Also save untracked files", "--include-untracked"],
+        ["-a", "Also save untracked and ignored files", "--all"],
+        ["-k", "Keep index", "--keep-index"],
+        ["-K", "Don't keep index", "--no-keep-index"],
+      ],
+    },
+    { description: "Actions", items: [["P", "push", e8.defineCommand({ name: "magit-stash-push--push", doc: "Create a stash with git stash push and the menu's arguments.", run: () => magitStashPush(transientArgs("magit-stash-push")) })]] },
+  ],
 });
 
 const stashMenu = transientDefinePrefix("magit-stash", {
@@ -1536,6 +1891,21 @@ const bindings: [string, e8.DefinedCommand | string][] = [
   ["h", dispatch],
   ["?", dispatch],
   ["q", magitModeBuryBuffer],
+  ["%", magitWorktree],
+  [":", magitGitCommand],
+  [">", "magit-sparse-checkout"],
+  ["C-<return>", magitVisitThing],
+  ["C-c C-c", dispatch],
+  ["C-c C-e", magitEditThing],
+  ["C-c C-o", magitBrowseThing],
+  ["C-c C-r", "magit-next-reference"],
+  ["C-c C-w", magitCopyThing],
+  ["D", magitDiffRefresh],
+  ["H", sectionInfo],
+  ["J", displayRepositoryBuffer],
+  ["L", "magit-log-refresh"],
+  ["Y", "magit-cherry"],
+  ["j", "magit-status-quick"],
 ];
 for (const [key, command] of bindings) e8.defineKey("magit-mode-map", key, command as e8.DefinedCommand);
 

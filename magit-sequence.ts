@@ -610,7 +610,7 @@ const publicEditConfirmed = new Set<string>();
 const targetCommit = (since: string): string => (since.endsWith("^") ? since.slice(0, -1) : since);
 
 /** Asks before rewriting published commits or a range with merges, giving SINCE or undefined to select another, as magit-rebase-interactive-assert. */
-function interactiveAssert(since: string, delayEditConfirm = false, rebaseMerges = false): string | undefined {
+export function magitRebaseInteractiveAssert(since: string, delayEditConfirm = false, rebaseMerges = false): string | undefined {
   const commit = targetCommit(since);
   const branches = publishingBranches(commit);
   const top = magitToplevel() ?? "";
@@ -642,7 +642,7 @@ function rebaseInteractive1(commitIn: string | undefined, argsIn: string[], mess
       if (includeSelected) commit = `${commit}^`;
     } else args = ["--root", ...args];
   }
-  if (commit && !noassert) commit = interactiveAssert(commit, delayEditConfirm, args.some((a) => a.startsWith("--rebase-merges")));
+  if (commit && !noassert) commit = magitRebaseInteractiveAssert(commit, delayEditConfirm, args.some((a) => a.startsWith("--rebase-merges")));
   if (commit && !confirm) {
     const env = editor ? { GIT_SEQUENCE_EDITOR: typeof editor === "function" ? editor(commit) : editor } : undefined;
     sequencer(["rebase", "-i", ...args, args.includes("--root") ? undefined : commit], then, env);

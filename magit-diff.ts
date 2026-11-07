@@ -45,7 +45,7 @@ import {
   type Section,
 } from "magit-section";
 import { forwardLine, truthy } from "subr";
-import { transientArgs } from "transient";
+import { transientArgs, transientDefinePrefix } from "transient";
 import { magitCompletingRead } from "magit-base";
 import {
   magitAnythingModifiedP,
@@ -54,6 +54,7 @@ import {
   magitCommitAtPoint,
   magitCommitP,
   magitCommitParents,
+  magitFileAtPoint,
   magitFileRelativeName,
   magitFileStatus,
   magitFormatRefLabels,
@@ -83,7 +84,7 @@ import {
   magitToplevelOrError,
   type GitArg,
 } from "magit-git";
-import { magitBufferName, magitDiffMode, magitRefreshBuffer, magitRevisionMode, magitSetupBuffer, magitStashMode } from "magit-mode";
+import { magitBufferName, magitDiffMode, magitRefreshBuffer, magitRevisionMode, magitSetupBuffer, magitStashMode, magitXrefStacks } from "magit-mode";
 
 // Faces.
 
@@ -161,6 +162,9 @@ const defaultArguments: { [mode: string]: string[] } = {
   "magit-log-mode": ["--no-ext-diff"],
 };
 
+/** Makes ARGS the diff arguments of new buffers of MODE, as the refresh menu's "set defaults" does. */
+export const magitDiffSetDefaultArguments = (mode: string, args: string[]): void => void (defaultArguments[mode] = [...args]);
+
 /**
  * The diff arguments and files for a buffer of MODE, as magit-diff-arguments:
  * the menu's when run from it, the current buffer's when it is of MODE, else
@@ -169,6 +173,10 @@ const defaultArguments: { [mode: string]: string[] } = {
 export function magitDiffArguments(mode = "magit-diff-mode"): [string[], string[]] {
   const current = e8.variable("transient-current-command");
   if (current === "magit-diff" || current === "magit-diff-refresh") return splitFiles(transientArgs(String(current)));
+  return magitDiffBufferArguments(mode);
+}
+/** The diff arguments and files of the current buffer when it is of MODE, else MODE's defaults: magitDiffArguments outside a menu. */
+export function magitDiffBufferArguments(mode = "magit-diff-mode"): [string[], string[]] {
   if (String(e8.variable("major-mode")) === mode && Array.isArray(e8.variable("magit-buffer-diff-args"))) {
     return [e8.variable("magit-buffer-diff-args") as string[], (e8.variable("magit-buffer-diff-files") as string[] | null) ?? []];
   }
@@ -722,7 +730,27 @@ function magitInsertDiff(): void {
   magitInsertGitDiff(["diff", range ?? undefined, "-p", "--no-prefix", args.includes("--stat") ? "--numstat" : undefined, typearg ?? undefined, args, "--", files], type === "staged" ? "staged" : type === "unstaged" ? "unstaged" : "commit");
 }
 inserters.set("magit-insert-diff", magitInsertDiff);
-inserters.set("magit-insert-xref-buttons", () => {});
+/** The keys of the history's buttons, as the help-back and help-forward buttons have. */
+for (const [map, command] of [
+  ["magit-xref-backward-button-map", "magit-go-backward"],
+  ["magit-xref-forward-button-map", "magit-go-forward"],
+] as const) {
+  e8.defineKeymap(map, null);
+  for (const key of ["RET", "<mouse-2>", "<mouse-1>"]) e8.defineKey(map, key, command as e8.CommandName);
+}
+/** Inserts buttons going back and forward in the buffer's history, as magit-insert-xref-buttons. */
+function magitInsertXrefButtons(): void {
+  const { back, forward } = magitXrefStacks();
+  if (truthy(e8.variable("magit-buffer-locked-p")) || (!back && !forward)) return;
+  const button = (label: string, map: string) =>
+    insertSection("button", label, false, () => e8.insert(e8.propertize(label, { button: true, keymap: map, "mouse-face": "magit-section-highlight", "help-echo": `mouse-2, RET: go ${map.includes("back") ? "back to previous" : "to next"} history entry` })));
+  if (back) button("[back]", "magit-xref-backward-button-map");
+  if (forward) {
+    if (back) e8.insert(" ");
+    button("[forward]", "magit-xref-forward-button-map");
+  }
+}
+inserters.set("magit-insert-xref-buttons", magitInsertXrefButtons);
 inserters.set("magit-insert-unstaged-changes", magitInsertUnstagedChanges);
 inserters.set("magit-insert-staged-changes", magitInsertStagedChanges);
 
@@ -1566,6 +1594,110 @@ e8.defineCommand({
   },
 });
 
+/** The worktree's buffer of the file at point and the position the line of point in its diff shows, as magit-diff-visit-file--noselect. */
+export function magitDiffVisitFileNoselect(): [string, number] {
+  const s = currentSection();
+  const file = magitFileAtPoint(true);
+  if (!s || !file) e8.userError("No file at point");
+  const line = s.type === "hunk" ? magitDiffHunkLine(s) : 1;
+  const prefix = s.type === "hunk" && (s.value as FileValue).hunk?.combined ? 2 : 1;
+  const column = s.type === "hunk" && e8.point() >= s.content ? Math.max(0, e8.currentColumn() - prefix) : 0;
+  const buf = e8.findFileNoselect(file);
+  const pos = e8.withCurrentBuffer(buf, () => {
+    const l = Math.max(0, Math.min(line - 1, e8.lineCount() - 1));
+    return Math.min(e8.lineStart(l) + column, e8.lineEnd(l));
+  });
+  return [buf, pos];
+}
+
+/** BODY's value in BUF with point at POS, put back afterwards, as magit--with-temp-position. */
+export function magitWithTempPosition<T>(buf: string, pos: number, body: () => T): T {
+  return e8.withCurrentBuffer(buf, () =>
+    e8.saveExcursion(() => {
+      e8.gotoChar(pos);
+      return body();
+    }),
+  );
+}
+
+// Jumping to a revision buffer's sections, after magit-diff.el's magit-revision-jump.
+
+/** The first section of TYPE among the buffer's top sections. */
+const topSection = (type: string): Section | undefined => sections()?.root.children.find((c) => c.type === type);
+
+/** Moves to SECTION, showing it with EXPAND and putting it at the window's top, else says what is missing. */
+function jumpToSection(section: Section | undefined, expand: e8.Value, missing: string): void {
+  if (!section) return void e8.message(missing);
+  e8.gotoChar(section.start);
+  if (truthy(expand)) {
+    show(section);
+    e8.setWindowStart(e8.selectedWindow(), e8.lineBeginningPosition());
+  }
+}
+
+/** Defines a command jumping to the revision buffer's section of TYPE, as magit-define-section-jumper. */
+const revisionJumper = (name: string, heading: string, type: string) =>
+  e8.defineCommand({
+    name,
+    doc: `Jump to the section "${heading}".\nWith a prefix argument also expand it.`,
+    params: [{ name: "expand", kind: "prefix" }],
+    run: (expand: e8.Value) => jumpToSection(topSection(type), expand, `Section "${heading}" wasn't found`),
+  });
+const jumpToRevisionHeaders = revisionJumper("magit-jump-to-revision-headers", "Headings", "headers");
+const jumpToRevisionMessage = revisionJumper("magit-jump-to-revision-message", "Message", "commit-message");
+const jumpToRevisionNotes = revisionJumper("magit-jump-to-revision-notes", "Notes", "notes");
+const jumpToRevisionDiffstat = e8.defineCommand({
+  name: "magit-jump-to-revision-diffstat",
+  doc: "Jump to the diffstat, to the file at point in it from a file or hunk.\nWith a prefix argument also expand it.",
+  params: [{ name: "expand", kind: "prefix" }],
+  run: (expand: e8.Value) => {
+    const stat = topSection("diffstat");
+    const at = currentSection();
+    const file = at?.type === "file" ? (at.value as FileValue).file : at?.type === "hunk" ? (at.parent?.value as FileValue | undefined)?.file : undefined;
+    const target = file !== undefined ? stat?.children.find((c) => (c.value as FileValue).file === file) : stat;
+    jumpToSection(target ?? stat, expand, "No diff sections found");
+  },
+});
+const jumpToRevisionDiff = e8.defineCommand({
+  name: "magit-jump-to-revision-diff",
+  doc: "Jump to the diff.\nWith a prefix argument also expand it.",
+  params: [{ name: "expand", kind: "prefix" }],
+  run: (expand: e8.Value) => jumpToSection(topSection("file"), expand, "No diff sections found"),
+});
+
+const revisionJumpMenu = transientDefinePrefix("magit-revision-jump--menu", {
+  doc: "In a Magit-Revision buffer, jump to a section.",
+  groups: [
+    {
+      items: [
+        {
+          description: "Jump to",
+          items: [
+            ["h", "Headings", jumpToRevisionHeaders],
+            ["m", "Message", jumpToRevisionMessage],
+            ["n", "Notes", jumpToRevisionNotes],
+            ["s", "Diffstat", jumpToRevisionDiffstat, { inaptIfNot: () => topSection("diffstat") !== undefined }],
+            ["d", "Diff", jumpToRevisionDiff, { inaptIfNot: () => topSection("file") !== undefined }],
+          ],
+        },
+        { description: "Jump using", items: [["j", "Imenu", "imenu"]] },
+      ],
+    },
+  ],
+});
+
+/** Jumps to a section of the revision buffer from a menu, or with MENU false as magit-jump-to-diffstat-or-diff, as magit-revision-jump. */
+export function magitRevisionJump(menu: boolean): void {
+  if (menu) e8.call(revisionJumpMenu);
+  else e8.call("magit-jump-to-diffstat-or-diff" as e8.CommandName);
+}
+export const magitRevisionJumpCommand = e8.defineCommand({
+  name: "magit-revision-jump",
+  doc: "In a Magit-Revision buffer, jump to a section.\nShow a menu to choose a section, unless point is on a file heading, or with a prefix argument, in which case behave like 'magit-jump-to-diffstat-or-diff'.",
+  params: [{ name: "prefix", kind: "prefix" }],
+  run: (prefix: e8.Value) => magitRevisionJump(currentSection()?.type !== "file" || truthy(prefix)),
+});
+
 e8.defineCommand({
   name: "magit-section-cycle-diffs",
   doc: "Cycle visibility of diff-related sections in the current buffer.",
@@ -1613,15 +1745,24 @@ void magitSectionParentValue;
 
 // Keys.
 
-/** The keys diff sections have, as magit-diff-section-map and the file and hunk maps built on it. */
-e8.defineKeymap("magit-diff-section-map", null);
+/**
+ * The keys diff sections have, as magit-diff-section-map and the file and
+ * hunk maps built on it; Magit's magit-diff-section-base-map is the same
+ * map, under its other name.
+ */
+e8.defineKeymap("magit-diff-section-base-map", null);
+e8.defineKeymap("magit-diff-section-map", "magit-diff-section-base-map");
 for (const [key, command] of [
   ["C-j", "magit-diff-visit-worktree-file"],
   ["C-<return>", "magit-diff-visit-worktree-file"],
   ["C-x 4 <return>", "magit-diff-visit-file-other-window"],
   ["C-x 5 <return>", "magit-diff-visit-file-other-frame"],
+  ["&", "magit-do-async-shell-command"],
+  ["C", "magit-commit-add-log"],
+  ["C-c C-t", "magit-diff-trace-definition"],
+  ["C-c C-e", "magit-diff-edit-hunk-commit"],
 ] as const)
-  e8.defineKey("magit-diff-section-map", key, command as e8.CommandName);
+  e8.defineKey("magit-diff-section-base-map", key, command as e8.CommandName);
 e8.remapCommand("magit-diff-section-map", "magit-visit-thing" as e8.CommandName, "magit-diff-visit-file" as e8.CommandName);
 for (const [from, to] of [
   ["magit-revert-no-commit", "magit-reverse"],
@@ -1634,6 +1775,7 @@ for (const [from, to] of [
 e8.defineKeymap("magit-file-section-map", "magit-diff-section-map");
 e8.defineKeymap("magit-hunk-section-map", "magit-diff-section-map");
 /** The keys of smerge-command-prefix in a hunk, as magit-hunk-section-smerge-map. */
+const magitHunkSectionSmergeMap = e8.defineKeymap("magit-hunk-section-smerge-map", null);
 for (const [key, command] of [
   ["RET", "magit-smerge-keep-current"],
   ["a", "magit-smerge-keep-all"],
@@ -1641,7 +1783,8 @@ for (const [key, command] of [
   ["b", "magit-smerge-keep-base"],
   ["l", "magit-smerge-keep-lower"],
 ] as const)
-  e8.defineKey("magit-hunk-section-map", `C-c ^ ${key}`, command as e8.CommandName);
+  e8.defineKey(magitHunkSectionSmergeMap, key, command as e8.CommandName);
+e8.defineKey("magit-hunk-section-map", "C-c ^", magitHunkSectionSmergeMap);
 e8.defineKeymap("magit-commit-message-section-map", null);
 e8.remapCommand("magit-commit-message-section-map", "magit-visit-thing" as e8.CommandName, "magit-show-commit" as e8.CommandName);
 magitSectionDefineType("commit-message", { keymap: "magit-commit-message-section-map" });
@@ -1654,10 +1797,16 @@ for (const [key, command] of [
   ["+", "magit-diff-more-context"],
   ["-", "magit-diff-less-context"],
   ["0", "magit-diff-default-context"],
+  ["M-<tab>", "magit-section-cycle-diffs"],
 ] as const)
   e8.defineKey("magit-mode-map", key, command as e8.CommandName);
 for (const [key, command] of [
   ["C-c C-d", "magit-diff-while-committing"],
+  ["C-c C-b", "magit-go-backward"],
+  ["C-c C-f", "magit-go-forward"],
   ["j", "magit-jump-to-diffstat-or-diff"],
 ] as const)
   e8.defineKey("magit-diff-mode-map", key, command as e8.CommandName);
+// A revision buffer has a diff buffer's keys, as magit-revision-mode-map's parent is magit-diff-mode-map.
+e8.setKeymapParent("magit-revision-mode-map", "magit-diff-mode-map");
+e8.defineKey("magit-revision-mode-map", "j", "magit-revision-jump" as e8.CommandName);

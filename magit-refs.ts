@@ -203,6 +203,10 @@ export const magitVisitRef = e8.defineCommand({
 magitSectionDefineType("branch", { keymap: "magit-branch-section-map" });
 magitSectionDefineType("tag", { keymap: "magit-tag-section-map" });
 magitSectionDefineType("remote", { keymap: "magit-remote-section-map" });
+/** The keys of a shelved branch's section, as magit-shelved-branch-section-map. */
+e8.defineKeymap("magit-shelved-branch-section-map", null);
+e8.remapCommand("magit-shelved-branch-section-map", "magit-delete-thing" as e8.CommandName, "magit-delete-shelved-branch" as e8.CommandName);
+magitSectionDefineType("shelved-branch", { keymap: "magit-shelved-branch-section-map" });
 for (const map of ["magit-branch-section-map", "magit-tag-section-map", "magit-remote-section-map"]) e8.defineKeymap(map, null);
 for (const [map, bindings] of [
   ["magit-branch-section-map", [["magit-file-rename", "magit-branch-rename"], ["magit-delete-thing", "magit-branch-delete"], ["magit-visit-thing", "magit-visit-ref"]]],
@@ -438,3 +442,7 @@ for (const [name, fn] of [
   ["magit-insert-shelved-branches", magitInsertShelvedBranches],
 ] as const)
   inserters.set(name, fn);
+
+// Keys, as magit-refs-mode-map binds them.
+e8.defineKey("magit-refs-mode-map", "C-y", magitRefsSetShowCommitCount);
+e8.defineKey("magit-refs-mode-map", "L", "magit-margin-settings" as e8.CommandName);

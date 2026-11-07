@@ -568,3 +568,11 @@ export function magitListReposUniquify(alist: [string, string][]): [string, stri
 /** Each repository magit-repository-directories finds, [name, directory], as magit-repos-alist. */
 export const magitReposAlist = (): [string, string][] =>
   magitListReposUniquify(magitListRepos().map((d) => [e8.fileNameNondirectory(e8.directoryFileName(d)), d]));
+
+// The button keys tabulated-list-mode-map has in Emacs, from button-buffer-map, which E8's lacks.
+for (const [key, command] of [
+  ["TAB", "forward-button"],
+  ["<backtab>", "backward-button"],
+  ["C-M-i", "backward-button"],
+] as const)
+  e8.defineKey("magit-repolist-mode-map", key, command as e8.CommandName);

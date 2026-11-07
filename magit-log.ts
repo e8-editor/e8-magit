@@ -21,7 +21,7 @@
 import { currentSection, insertHeading, insertRoot, insertSection, magitCancelSection, magitSectionDefineType, magitSectionGoto, magitSectionMatch, magitSectionSiblings, sections, type Section } from "magit-section";
 import { truthy } from "subr";
 import { transientArgs } from "transient";
-import { magitCompletingRead, magitReadString } from "magit-base";
+import { magitCompletingRead, magitReadString, magitWithMinibufferMap } from "magit-base";
 import {
   magitAbbrevLength,
   magitBranchOrCommitAtPoint,
@@ -43,6 +43,7 @@ import {
   magitReadLocalBranchOrRef,
   magitReadOtherBranch,
   magitReadRangeOrCommit,
+  magitReadShelvedBranch,
   magitRefAbbrev,
   magitRevAbbrev,
   magitRevAncestorP,
@@ -52,7 +53,8 @@ import {
   magitRevVerify,
 } from "magit-git";
 import { magitBufferInfo, magitBufferName, magitGetModeBuffer, magitLogMode, magitModeBuryBuffer, magitRefresh, magitRefreshBuffer, magitReflogMode, magitSetupBuffer } from "magit-mode";
-import { inserters, magitDiffWashDiffs, magitShowCommitRev, runSectionHook } from "magit-diff";
+import { magitRunGit } from "magit-process";
+import { inserters, magitDiffVisitFileNoselect, magitDiffWashDiffs, magitShowCommitRev, magitWithTempPosition, runSectionHook } from "magit-diff";
 import { magitLogFormatMargin, magitMakeMarginOverlay, magitRightMarginActive, magitSetBufferMargins } from "magit-margin";
 
 // Faces.
@@ -597,13 +599,30 @@ export function magitLogGotoCommitSection(rev: string): boolean {
   return s !== undefined;
 }
 
+/**
+ * The minibuffer's keymap while reading a log's revisions, as
+ * magit-log-read-revs-map: SPC inserts itself, as revisions are separated
+ * by commas, spaces and dots; and Emacs's completion keys that E8's
+ * minibuffer map lacks.
+ */
+const magitLogReadRevsMap = e8.defineKeymap("magit-log-read-revs-map", "minibuffer-local-map");
+for (const [key, command] of [
+  ["SPC", "self-insert-command"],
+  ["<backtab>", "minibuffer-complete"],
+  ["<next>", "next-history-element"],
+  ["<prior>", "previous-history-element"],
+] as const)
+  e8.defineKey(magitLogReadRevsMap, key, command as e8.CommandName);
+
 /** Reads revisions for a log, as magit-log-read-revs. */
 function magitLogReadRevs(useCurrent = false): string[] {
   if (useCurrent) {
     const b = magitGetCurrentBranch();
     if (b) return [b];
   }
-  const reply = magitCompletingRead("Log rev,s", magitListRefnames(undefined, true), { requireMatch: "any", history: "magit-revision-history", def: magitBranchOrCommitAtPoint() ?? (!useCurrent ? magitGetPreviousBranch() : undefined) });
+  const reply = magitWithMinibufferMap("magit-log-read-revs-map", () =>
+    magitCompletingRead("Log rev,s", magitListRefnames(undefined, true), { requireMatch: "any", history: "magit-revision-history", def: magitBranchOrCommitAtPoint() ?? (!useCurrent ? magitGetPreviousBranch() : undefined) }),
+  );
   return (reply ?? "").split(/[, ]/).filter((r) => r !== "");
 }
 
@@ -700,6 +719,22 @@ e8.defineCommand({
     magitLogSetupBuffer([commit], [`-L:${fn!.replace(/:/g, "\\:")}:${file}`, ...args.filter((a) => !a.startsWith("-L"))], []);
   },
 });
+/** Deletes the shelved BRANCH, a ref magit-branch-shelve made, as magit-delete-shelved-branch. */
+export function magitDeleteShelvedBranch(branch: string): void {
+  magitRunGit("update-ref", "-d", `refs/shelved/${branch}`);
+}
+e8.defineCommand({
+  name: "magit-delete-shelved-branch",
+  doc: "Delete the shelved BRANCH.\nDelete a ref created by magit-branch-shelve.",
+  run: () => magitDeleteShelvedBranch(magitReadShelvedBranch("Log shelved branch")),
+});
+
+/** Shows the log of the definition the line of point in a diff shows, as magit-diff-trace-definition. */
+export function magitDiffTraceDefinition(): void {
+  const [buf, pos] = magitDiffVisitFileNoselect();
+  magitWithTempPosition(buf, pos, () => e8.callInteractively("magit-log-trace-definition" as e8.CommandName));
+}
+e8.defineCommand({ name: "magit-diff-trace-definition", doc: "Show log for the definition at point in a diff.", run: () => magitDiffTraceDefinition() });
 e8.defineCommand({
   name: "magit-log-merged",
   doc: "Show log for the merge of COMMIT into BRANCH: the range M^1..M of the merge M that brought it in. Needs git-when-merged.",
@@ -843,8 +878,21 @@ function nextReference(previous: boolean): void {
   if (previous) while (p > e8.pointMin() && isRef(p - 1)) p--;
   e8.gotoChar(p);
 }
-e8.defineCommand({ name: "magit-next-reference", doc: "Move to the next Git reference appearing in the current buffer.", run: () => nextReference(false) });
-e8.defineCommand({ name: "magit-previous-reference", doc: "Move to the previous Git reference appearing in the current buffer.", run: () => nextReference(true) });
+/** The keys that repeat moving between references, as magit-reference-navigation-repeat-map, when repeat-mode is on. */
+const magitReferenceNavigationRepeatMap = e8.defineKeymap("magit-reference-navigation-repeat-map", null);
+/** Moves to the next or previous reference, then with repeat-mode lets the repeat map's keys move on, as :repeat t makes the commands do. */
+function navigateReferences(previous: boolean): void {
+  nextReference(previous);
+  if (truthy(e8.variable("repeat-mode"))) e8.setTransientMap(magitReferenceNavigationRepeatMap);
+}
+e8.defineCommand({ name: "magit-next-reference", doc: "Move to the next Git reference appearing in the current buffer.\n\nMove to the next location that uses a face appearing in magit-reference-movement-faces.  If repeat-mode is enabled, this command and its counterpart can be repeated using p and n.", run: () => navigateReferences(false) });
+e8.defineCommand({ name: "magit-previous-reference", doc: "Move to the previous Git reference appearing in the current buffer.\n\nMove to the previous location that uses a face appearing in magit-reference-movement-faces.  If repeat-mode is enabled, this command and its counterpart can be repeated using p and n.", run: () => navigateReferences(true) });
+for (const [key, command] of [
+  ["p", "magit-previous-reference"],
+  ["n", "magit-next-reference"],
+  ["r", "magit-next-reference"],
+] as const)
+  e8.defineKey(magitReferenceNavigationRepeatMap, key, command as e8.CommandName);
 
 // The reflog buffer.
 
@@ -987,6 +1035,10 @@ e8.addHook("magit-section-movement-hook", (section: Section | undefined) => {
 });
 
 for (const [key, command] of [
+  ["C-c C-b", "magit-go-backward"],
+  ["C-c C-f", "magit-go-forward"],
+  ["C-c C-n", "magit-log-move-to-parent"],
+  ["j", "magit-log-move-to-revision"],
   ["=", "magit-log-toggle-commit-limit"],
   ["+", "magit-log-double-commit-limit"],
   ["-", "magit-log-half-commit-limit"],
@@ -994,6 +1046,12 @@ for (const [key, command] of [
 ] as const)
   e8.defineKey("magit-log-mode-map", key, command as e8.CommandName);
 e8.defineKey("magit-reflog-mode-map", "L", "magit-margin-settings" as e8.CommandName);
+e8.defineKey("magit-cherry-mode-map", "q", "magit-log-bury-buffer" as e8.CommandName);
+// Keys of the log the reflog and selecting a commit have no use for, as Magit undefines them.
+e8.defineKey("magit-reflog-mode-map", "C-c C-n", "undefined" as e8.CommandName);
+e8.defineKey("magit-log-select-mode-map", "C-c C-b", "undefined" as e8.CommandName);
+e8.defineKey("magit-log-select-mode-map", "C-c C-f", "undefined" as e8.CommandName);
+e8.defineKey("magit-cherry-mode-map", "L", "magit-margin-settings" as e8.CommandName);
 
 void magitBufferInfo;
 void magitRefreshBuffer;

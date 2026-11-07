@@ -97,7 +97,8 @@ export function magitCompletingReadMultiple(prompt: string, table: Iterable<stri
 
 /** Reads a string, trimmed, as magit-read-string: empty input is the default, or an error without one. */
 export function magitReadString(prompt: string, initialInput?: string, history?: string, def?: string, noWhitespace = false): string {
-  let reply = e8.readString(magitFormatPrompt(prompt, def), { initial: initialInput, history, default: def }).trim();
+  const read = () => e8.readString(magitFormatPrompt(prompt, def), { initial: initialInput, history, default: def });
+  let reply = (noWhitespace ? magitWithMinibufferMap("magit-minibuffer-local-ns-map", read) : read()).trim();
   if (reply === "" && def !== undefined) reply = def;
   if (noWhitespace) reply = reply.replace(/\s+/g, "-");
   if (reply === "") e8.userError("Need non-empty input");
@@ -195,3 +196,75 @@ export function magitFormatTimeString(format: string, time: number): string {
     }
   });
 }
+
+// Reading text without whitespace, after magit-base.el's
+// magit-minibuffer-local-ns-map.
+
+/** The minibuffer's keymap while reading text in which whitespace is not allowed, as magit-minibuffer-local-ns-map. */
+export const magitMinibufferLocalNsMap = e8.defineKeymap("magit-minibuffer-local-ns-map", "minibuffer-local-map");
+
+export const magitWhitespaceDisallowed = e8.defineCommand({
+  name: "magit-whitespace-disallowed",
+  doc: "Beep to tell the user that whitespace is not allowed.",
+  run: () => {
+    e8.ding();
+    e8.message("Whitespace isn't allowed here");
+    if (truthy(e8.variable("defining-kbd-macro"))) e8.setVariable("defining-kbd-macro", null);
+  },
+});
+
+for (const [key, command] of [
+  ["SPC", magitWhitespaceDisallowed],
+  ["TAB", magitWhitespaceDisallowed],
+  // What Emacs's minibuffer-local-map binds that E8's lacks.
+  ["<next>", "next-history-element"],
+  ["<prior>", "previous-history-element"],
+] as const)
+  e8.defineKey(magitMinibufferLocalNsMap, key, command as e8.CommandName);
+
+/** BODY's value, the minibuffer it opens having MAP as its local keymap, as Lisp binds minibuffer-local-map or passes a keymap to read-from-minibuffer. */
+export function magitWithMinibufferMap<T>(map: string | e8.Keymap, body: () => T): T {
+  const setup = (): void => {
+    e8.removeHook("minibuffer-setup-hook", setup);
+    e8.useLocalMap(map);
+  };
+  e8.addHook("minibuffer-setup-hook", setup);
+  try {
+    return body();
+  } finally {
+    e8.removeHook("minibuffer-setup-hook", setup);
+  }
+}
+
+// Debugging, after magit-base.el's magit-emacs-Q-command.
+
+/** The directory along load-path holding LIBRARY, as locate-library finds it. */
+function locateLibraryDirectory(library: string): string | undefined {
+  const path = (e8.variable("load-path") as string[] | null) ?? [];
+  return path.map((d) => e8.fileNameAsDirectory(e8.expandFileName(String(d)))).find((d) => e8.fileExistsP(`${d}${library}.ts`));
+}
+
+/** A word quoted for the shell, as shell-quote-argument. */
+const shellQuoteArgument = (s: string): string => (s === "" ? "''" : /^[\w@%+=:,./-]+$/.test(s) ? s : s.replace(/([^\w@%+=:,./-])/g, "\\$1"));
+
+/** A shell command that runs an uncustomized E8 with only Magit loaded, as magit-emacs-Q-command makes for Emacs. */
+export function magitEmacsQCommand(): string {
+  const dirs: string[] = [];
+  for (const lib of ["magit-section", "with-editor", "magit"]) {
+    const dir = locateLibraryDirectory(lib);
+    if (!dir) e8.signal("error", `Cannot find mandatory dependency ${lib}`);
+    if (!dirs.includes(dir!)) dirs.push(dir!);
+  }
+  const program = `${String(e8.variable("invocation-directory") ?? "")}${String(e8.variable("invocation-name") ?? "e8")}`;
+  return [program, "-q", ...dirs.flatMap((d) => ["-L", d]), "-l", `${locateLibraryDirectory("magit")}magit.ts`].map(shellQuoteArgument).join(" ");
+}
+
+export const magitEmacsQCommandCommand = e8.defineCommand({
+  name: "magit-emacs-Q-command",
+  doc: "Show a shell command that runs an uncustomized Emacs with only Magit loaded.\nIn E8 that is E8, without init.ts, loading Magit and the packages it requires.",
+  run: () => {
+    const cmd = magitEmacsQCommand();
+    e8.message("Uncustomized Magit command saved to kill-ring, please run it in a terminal.");
+    e8.killNew(cmd);
+  },
+});

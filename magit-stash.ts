@@ -13,7 +13,9 @@
 // option) any later version.
 
 import { insertHeading, insertSection } from "magit-section";
-import { magitGitLines, magitGitRun, magitRevVerify } from "magit-git";
+import { magitGitLines, magitGitRun, magitRevVerify, magitSectionValueIf } from "magit-git";
+import { magitConfirm } from "magit-base";
+import { magitRunGit } from "magit-process";
 import { magitLogWashLog } from "magit-log";
 import { magitLogFormatMargin, magitMakeMarginOverlay } from "magit-margin";
 import { magitFileLine } from "magit-sequence";
@@ -78,3 +80,26 @@ for (const [from, to] of [
 ] as const)
   e8.remapCommand("magit-stash-section-map", from as e8.CommandName, to as e8.CommandName);
 magitSectionDefineType("stash", { keymap: "magit-stash-section-map" });
+
+// Clearing, after magit-stash.el's magit-stash-clear.
+
+/** Removes all stashes saved in REF's reflog by deleting REF, as magit-stash-clear does once confirmed. */
+export function magitStashClear(ref: string): void {
+  magitRunGit("update-ref", "-d", ref);
+}
+export const magitStashClearCommand = e8.defineCommand({
+  name: "magit-stash-clear",
+  doc: "Remove all stashes saved in REF's reflog by deleting REF.",
+  run: () => {
+    const v = magitSectionValueIf("stashes");
+    const ref = typeof v === "string" ? v : "refs/stash";
+    magitConfirm(true, `Drop all stashes in ${ref}`);
+    magitStashClear(ref);
+  },
+});
+
+/** The keys of the stashes section, as magit-stashes-section-map. */
+e8.defineKeymap("magit-stashes-section-map", null);
+e8.remapCommand("magit-stashes-section-map", "magit-delete-thing" as e8.CommandName, magitStashClearCommand);
+e8.remapCommand("magit-stashes-section-map", "magit-visit-thing" as e8.CommandName, "magit-stash-list" as e8.CommandName);
+magitSectionDefineType("stashes", { keymap: "magit-stashes-section-map" });

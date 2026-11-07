@@ -44,12 +44,12 @@ import {
   magitDiffContextP,
   magitDiffFileHeader,
   magitDiffGetContext,
-  magitDiffHunkLine,
   magitDiffHunkRegionPatch,
   magitDiffIgnoreAnySpaceP,
   magitDiffScope,
   magitDiffType,
   type FileValue,
+  magitDiffVisitFileNoselect,
 } from "magit-diff";
 import { magitListUntrackedFiles } from "magit-status";
 import { magitCheckoutReadStage, magitCheckoutStage } from "magit-merge";
@@ -865,22 +865,6 @@ function smergeKeep(side: Side, c: Conflict, pos: number): void {
   }
 }
 
-/** The worktree's buffer of the file at point and the position the line of point in its diff shows, as magit-diff-visit-file--noselect. */
-function visitFileNoselect(): [string, number] {
-  const s = currentSection();
-  const file = magitFileAtPoint(true);
-  if (!s || !file) e8.userError("No file at point");
-  const line = s.type === "hunk" ? magitDiffHunkLine(s) : 1;
-  const prefix = s.type === "hunk" && (s.value as FileValue).hunk?.combined ? 2 : 1;
-  const column = s.type === "hunk" && e8.point() >= s.content ? Math.max(0, e8.currentColumn() - prefix) : 0;
-  const buf = e8.findFileNoselect(file);
-  const pos = e8.withCurrentBuffer(buf, () => {
-    const l = Math.max(0, Math.min(line - 1, e8.lineCount() - 1));
-    return Math.min(e8.lineStart(l) + column, e8.lineEnd(l));
-  });
-  return [buf, pos];
-}
-
 /**
  * Keeps SIDE of the conflict the line of point in a hunk shows, in the
  * file, then saves it, as magit-call-smerge: outside a conflict, the next
@@ -889,7 +873,7 @@ function visitFileNoselect(): [string, number] {
 export function magitCallSmerge(side: Side, discard = false): void {
   const file = magitFileAtPoint(true)!;
   const kept = e8.bufferList().find((b) => e8.withCurrentBuffer(b, () => e8.bufferFileName()) === file);
-  const [buf, pos] = visitFileNoselect();
+  const [buf, pos] = magitDiffVisitFileNoselect();
   e8.withCurrentBuffer(buf, () => {
     e8.saveExcursion(() => {
       let at = pos;

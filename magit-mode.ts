@@ -17,7 +17,7 @@
 
 import { currentSection, magitGetSection, magitSectionIdent, magitSectionMode, magitSectionUpdateHighlight } from "magit-section";
 import { PerBuffer, truthy } from "subr";
-import { magitRefreshCacheCounts, magitToplevel, magitToplevelOrError, magitWithRefreshCache } from "magit-git";
+import { magitProfile, magitProfileResults, magitProfiling, magitRefreshCacheCounts, magitToplevel, magitToplevelOrError, magitWithRefreshCache, magitZapGitVersionCache } from "magit-git";
 
 e8.defineVariable({
   name: "magit-save-repository-buffers",
@@ -99,16 +99,22 @@ const buffers = new PerBuffer<MagitBuffer>();
 /** The repository's directory name, as %t names it. */
 export const magitRepoName = (dir: string): string => e8.fileNameNondirectory(dir.replace(/\/$/, ""));
 
-/** The name of a Magit buffer of MODE for the repository in DIR, as magit-generate-buffer-name-default-function. */
-export function magitBufferName(mode: string, dir = magitToplevelOrError()): string {
+/**
+ * The name of a Magit buffer of MODE for the repository in DIR, as
+ * magit-generate-buffer-name-default-function: VALUE, the value a locked
+ * buffer is locked to, is in it as Lisp prints a list.
+ */
+export function magitBufferName(mode: string, dir = magitToplevelOrError(), value?: string[]): string {
   const format = String(e8.variable("magit-buffer-name-format") ?? "%M%v: %t");
   const short = mode === "magit-status-mode" ? "magit" : mode.replace(/-mode$/, "");
+  const v = value && value.length > 0 ? `(${value.join(" ")})` : undefined;
   return format
     .replace("%M", short)
-    .replace("%m", mode)
-    .replace("%v", "")
+    .replace("%m", mode.replace(/-mode$/, ""))
+    .replace("%v", v ?? "")
+    .replace("%V", v ? ` ${v}` : "")
     .replace("%t", magitRepoName(dir))
-    .replace("%x", "");
+    .replace(/%x/g, "");
 }
 
 /** What a Magit buffer is: its kind and repository, or undefined for another buffer. */
@@ -138,6 +144,7 @@ export function magitSetupBuffer(name: string, mode: e8.DefinedCommand | string,
       e8.makeLocalVariable(variable);
       e8.setVariable(variable, value);
     }
+    magitXrefSetup(existed, { kind, refresh, dir, locals });
     buffers.set(e8.currentBuffer(), { kind, refresh, dir });
   });
   if (select) magitDisplayBuffer(name);
@@ -409,11 +416,20 @@ export function magitRunHookWithBenchmark(hook: string): void {
   e8.message(`Running ${hook}...done (${seconds(start)}s)`);
 }
 
-/** The Magit buffer of MODE for the repository in DIR, if there is one, as magit-get-mode-buffer. */
-export function magitGetModeBuffer(mode: string, dir = magitToplevel()): string | undefined {
+/**
+ * The Magit buffer of MODE for the repository in DIR, if there is one, as
+ * magit-get-mode-buffer: the one not locked to its value, or with VALUE
+ * the one locked to that value.
+ */
+export function magitGetModeBuffer(mode: string, dir = magitToplevel(), value?: string[]): string | undefined {
   return e8.bufferList().find((b) => {
     const info = magitBufferInfo(b);
-    return info !== undefined && info.dir === dir && e8.withCurrentBuffer(b, () => String(e8.variable("major-mode"))) === mode;
+    if (info === undefined || info.dir !== dir) return false;
+    return e8.withCurrentBuffer(b, () => {
+      if (String(e8.variable("major-mode")) !== mode) return false;
+      const locked = truthy(e8.variable("magit-buffer-locked-p"));
+      return value ? locked && JSON.stringify(magitBufferValue()) === JSON.stringify(value) : !locked;
+    });
   });
 }
 
@@ -545,4 +561,316 @@ export const magitDeleteThing = e8.defineCommand({
   name: "magit-delete-thing",
   doc: "This is a placeholder command, which signals an error if called.\nWhere applicable, other keymaps remap this command to another, which actually deletes the thing at point.",
   run: () => e8.userError("There is no thing at point that could be deleted"),
+});
+
+// Locking a buffer to its value, after magit-mode.el's magit-toggle-buffer-lock.
+
+e8.defineVariable({ name: "magit-buffer-locked-p", doc: "Whether the current buffer is locked to its value, as magit-toggle-buffer-lock locks it.", value: false, local: true });
+
+/** A list variable's value as strings. */
+const strings = (name: string): string[] => {
+  const v = e8.variable(name);
+  return Array.isArray(v) ? v.map(String) : v === null || v === undefined || v === false ? [] : [String(v)];
+};
+const stringOr = (name: string): string | undefined => {
+  const v = e8.variable(name);
+  return typeof v === "string" ? v : undefined;
+};
+
+/**
+ * What the current buffer shows, which it can be locked to, as
+ * magit-buffer-value: undefined for a buffer that cannot be locked, as a
+ * status buffer.
+ */
+export function magitBufferValue(): string[] | undefined {
+  const mode = String(e8.variable("major-mode"));
+  const files = strings("magit-buffer-diff-files");
+  switch (mode) {
+    case "magit-diff-mode": {
+      const range = stringOr("magit-buffer-range");
+      const typearg = stringOr("magit-buffer-typearg");
+      const head = range ? [range, ...(typearg ? [typearg] : [])] : typearg === "--cached" ? ["staged"] : ["unstaged", ...(typearg ? [typearg] : [])];
+      return [...head, ...(files.length > 0 ? ["--", ...files] : [])];
+    }
+    case "magit-revision-mode":
+      return [stringOr("magit-buffer-revision") ?? "", ...files];
+    case "magit-stash-mode":
+      return [stringOr("magit-buffer-revision") ?? ""];
+    case "magit-log-mode": {
+      const revs = strings("magit-buffer-revisions");
+      const logFiles = strings("magit-buffer-log-files");
+      return [...revs, ...(revs.length > 0 && logFiles.length > 0 ? ["--", ...logFiles] : logFiles)];
+    }
+    case "magit-log-select-mode":
+      return strings("magit-buffer-revisions");
+    case "magit-cherry-mode":
+      return stringOr("magit-buffer-range") ? [stringOr("magit-buffer-range")!] : [stringOr("magit-buffer-refname") ?? "", stringOr("magit-buffer-upstream") ?? ""].filter((x) => x !== "");
+    case "magit-reflog-mode":
+      return stringOr("magit-buffer-refname") ? [stringOr("magit-buffer-refname")!] : undefined;
+    default:
+      return undefined;
+  }
+}
+
+/** Renames the current buffer to a name for MODE and VALUE not taken yet. */
+function renameForLock(mode: string, value?: string[]): void {
+  const dir = magitBufferInfo()?.dir ?? magitToplevelOrError();
+  e8.call("rename-buffer", e8.generateNewBufferName(magitBufferName(mode, dir, value)));
+}
+
+export const magitToggleBufferLock = e8.defineCommand({
+  name: "magit-toggle-buffer-lock",
+  doc:
+    "Lock the current buffer to its value or unlock it.\n\n" +
+    "Locking a buffer to its value prevents it from being reused to display another value.  The name of a locked buffer contains its value, which allows telling it apart from other locked buffers and the unlocked buffer.\n\n" +
+    "Not all Magit buffers can be locked to their values, for example it wouldn't make sense to lock a status buffer.\n\n" +
+    "There can only be a single unlocked buffer using a certain major-mode per repository.  So when a buffer is being unlocked and another unlocked buffer already exists for that mode and repository, then the former buffer is instead deleted and the latter is displayed in its place.",
+  run: () => {
+    const mode = String(e8.variable("major-mode"));
+    const dir = magitBufferInfo()?.dir;
+    if (truthy(e8.variable("magit-buffer-locked-p"))) {
+      const unlocked = magitGetModeBuffer(mode, dir);
+      if (unlocked) {
+        const locked = e8.bufferName();
+        e8.call("switch-to-buffer", unlocked);
+        e8.call("kill-buffer", locked);
+      } else {
+        e8.setVariable("magit-buffer-locked-p", false);
+        renameForLock(mode);
+      }
+      return;
+    }
+    const value = magitBufferValue();
+    if (!value) return e8.userError("Buffer has no value it could be locked to");
+    const locked = magitGetModeBuffer(mode, dir, value);
+    if (locked) {
+      const unlocked = e8.bufferName();
+      e8.call("switch-to-buffer", locked);
+      e8.call("kill-buffer", unlocked);
+    } else {
+      e8.setVariable("magit-buffer-locked-p", true);
+      renameForLock(mode, value);
+    }
+  },
+});
+
+// Buffer history, after magit-mode.el's magit-xref-setup and help's xref stacks.
+
+e8.defineVariable({ name: "magit-xref-modes", doc: "List of modes for which to insert navigation buttons.", value: ["magit-log-mode", "magit-reflog-mode", "magit-diff-mode", "magit-revision-mode"] });
+
+/** What a buffer of the history showed: enough to show it again. */
+interface XrefItem {
+  kind: string;
+  refresh: () => void;
+  dir: string;
+  locals: { [variable: string]: e8.Value };
+}
+/** Each buffer's history, as help-xref-stack-item, help-xref-stack and help-xref-forward-stack. */
+const xrefs = new PerBuffer<{ item?: XrefItem; back: [number, XrefItem][]; forward: [number, XrefItem][] }>();
+
+/**
+ * Records what the current buffer shows now, ITEM, as magit-xref-setup:
+ * in a buffer of a mode in magit-xref-modes that EXISTED and showed
+ * something, that goes on its history, for magit-go-backward.
+ */
+function magitXrefSetup(existed: boolean, item: XrefItem): void {
+  const modes = strings("magit-xref-modes");
+  if (!modes.includes(String(e8.variable("major-mode")))) return;
+  const x = (existed && xrefs.get(e8.currentBuffer())) || { back: [], forward: [] };
+  if (x.item) {
+    x.back.unshift([e8.point(), x.item]);
+    x.forward = [];
+  }
+  x.back.splice(30);
+  x.item = item;
+  xrefs.set(e8.currentBuffer(), x);
+}
+
+/** Whether the current buffer has entries to go back or forward to, for magit-insert-xref-buttons. */
+export function magitXrefStacks(): { back: boolean; forward: boolean } {
+  const x = xrefs.get(e8.currentBuffer());
+  return { back: (x?.back.length ?? 0) > 0, forward: (x?.forward.length ?? 0) > 0 };
+}
+
+/** Shows ITEM again in the current buffer, with point at POINT, as magit-xref-restore. */
+function xrefRestore(point: number, item: XrefItem): void {
+  e8.setVariable("default-directory", item.dir);
+  for (const [variable, value] of Object.entries(item.locals)) {
+    e8.makeLocalVariable(variable);
+    e8.setVariable(variable, value);
+  }
+  buffers.set(e8.currentBuffer(), { kind: item.kind, refresh: item.refresh, dir: item.dir });
+  magitRefreshBuffer();
+  e8.gotoChar(Math.max(e8.pointMin(), Math.min(point, e8.pointMax())));
+}
+
+/** Goes back in the current buffer's history, as help-xref-go-back. */
+export function magitGoBackward(): void {
+  const x = xrefs.get(e8.currentBuffer());
+  if (!x || x.back.length === 0) return e8.userError("No previous entry in buffer's history");
+  const [point, item] = x.back.shift()!;
+  if (x.item) x.forward.unshift([e8.point(), x.item]);
+  x.item = item;
+  xrefRestore(point, item);
+}
+
+/** Goes forward in the current buffer's history, as help-xref-go-forward. */
+export function magitGoForward(): void {
+  const x = xrefs.get(e8.currentBuffer());
+  if (!x || x.forward.length === 0) return e8.userError("No next entry in buffer's history");
+  const [point, item] = x.forward.shift()!;
+  if (x.item) x.back.unshift([e8.point(), x.item]);
+  x.item = item;
+  xrefRestore(point, item);
+}
+
+export const magitGoBackwardCommand = e8.defineCommand({ name: "magit-go-backward", doc: "Move backward in current buffer's history.", run: () => magitGoBackward() });
+export const magitGoForwardCommand = e8.defineCommand({ name: "magit-go-forward", doc: "Move forward in current buffer's history.", run: () => magitGoForward() });
+
+// Commands acting on the thing at point, which section keymaps remap.
+
+/** The URL at point, as (thing-at-point 'url). */
+function urlAtPoint(): string | undefined {
+  const start = e8.lineBeginningPosition();
+  const line = e8.bufferSubstringNoProperties(start, e8.lineEndPosition());
+  const column = e8.point() - start;
+  const re = /\b(?:(?:https?|ftp|file|mailto|ssh|git):(?:\/\/)?|www\.)[^\s<>"'()]+/g;
+  for (let m = re.exec(line); m; m = re.exec(line)) {
+    if (m.index <= column && column <= m.index + m[0].length) return m[0].replace(/[.,;:]+$/, "");
+  }
+  return undefined;
+}
+
+/** Opens URL in a browser, as browse-url. */
+export function magitBrowseUrl(url: string): void {
+  if (e8.fboundp("browse-url")) return void e8.funcall("browse-url", url);
+  if (!truthy(e8.variable("noninteractive"))) {
+    const opener = e8.callProcess(["uname", "-s"]).output.trim() === "Darwin" ? "open" : "xdg-open";
+    e8.makeProcess({ name: "browse-url", command: [opener, url] });
+  }
+  e8.message(`Browsing ${url}`);
+}
+
+export const magitBrowseThing = e8.defineCommand({
+  name: "magit-browse-thing",
+  doc: "This is a placeholder command, which may signal an error if called.\nWhere applicable, other keymaps remap this command to another, which actually visits thing at point using browse-url.",
+  run: () => {
+    const url = urlAtPoint();
+    if (url) magitBrowseUrl(url);
+    else e8.userError("There is no thing at point that could be browsed");
+  },
+});
+export const magitEditThing = e8.defineCommand({
+  name: "magit-edit-thing",
+  doc: "This is a placeholder command, which may signal an error if called.\nWhere applicable, other keymaps remap this command to another, which actually lets you edit the thing at point, likely in another buffer.",
+  run: () => e8.userError("There is no thing at point that could be edited"),
+});
+export const magitCopyThing = e8.defineCommand({
+  name: "magit-copy-thing",
+  doc: "This is a placeholder command, which signals an error if called.\nWhere applicable, other keymaps remap this command to another, which actually copies some representation of the thing at point to the kill ring.",
+  run: () => e8.userError("There is no thing at point that we know how to copy"),
+});
+
+// Refreshing, saving and caches.
+
+export const magitRefreshBufferCommand = e8.defineCommand({
+  name: "magit-refresh-buffer",
+  doc: "Refresh the current Magit buffer.\nThe arguments are for internal use.",
+  run: () => magitRefreshBuffer(),
+});
+
+/**
+ * Saves the file-visiting buffers of the current repository, as
+ * magit-save-repository-buffers: asking about each modified one, unless
+ * ARG, or the buffer's buffer-save-without-query, says to save it without
+ * asking.
+ */
+export function magitSaveRepositoryBuffersInteractively(arg = false): void {
+  const top = magitToplevel();
+  if (!top) return;
+  for (const b of e8.bufferList()) {
+    e8.withCurrentBuffer(b, () => {
+      const f = e8.bufferFileName();
+      if (!f || !e8.bufferModified() || !e8.expandFileName(f).startsWith(top)) return;
+      if (arg || truthy(e8.variable("buffer-save-without-query")) || e8.yOrNP(`Save file ${f}? `)) e8.call("save-buffer");
+    });
+  }
+}
+export const magitSaveRepositoryBuffersCommand = e8.defineCommand({
+  name: "magit-save-repository-buffers",
+  doc: "Save file-visiting buffers belonging to the current repository.\nAfter any buffer where buffer-save-without-query is non-nil is saved without asking, the user is asked about each modified buffer, which visits a file in the current repository.  Optional argument (the prefix) non-nil means save all with no questions.",
+  params: [{ name: "arg", kind: "prefix" }],
+  run: (arg: e8.Value) => magitSaveRepositoryBuffersInteractively(truthy(arg)),
+});
+
+/**
+ * Zaps the caches for the current repository, as magit-zap-caches: the
+ * git version's, and each of its buffers' history; with ALL, every
+ * repository's.
+ */
+export function magitZapCaches(all = false): void {
+  magitZapGitVersionCache();
+  const targets = all ? e8.bufferList().filter((b) => magitBufferInfo(b) !== undefined) : magitModeGetBuffers();
+  for (const b of targets) {
+    const x = xrefs.get(b);
+    if (x) x.back = x.forward = [];
+  }
+}
+export const magitZapCachesCommand = e8.defineCommand({
+  name: "magit-zap-caches",
+  doc:
+    "Zap caches for the current repository.\n\n" +
+    "Remove the repository's entry from magit-repository-local-cache, remove the host's entry from magit--host-git-version-cache, and set magit-section-visibility-cache to nil for all Magit buffers of the repository.\n\n" +
+    "With a prefix argument or if optional ALL is non-nil, discard the mentioned caches completely.",
+  params: [{ name: "all", kind: "prefix" }],
+  run: (all: e8.Value) => magitZapCaches(truthy(all)),
+});
+
+// Profiling, which in E8 times the git Magit runs, as elp times Magit's functions.
+
+/** Shows the profile so far in a buffer, as elp-results. */
+function profileResults(): void {
+  const rows = magitProfileResults();
+  const width = Math.max(13, ...rows.map((r) => r.name.length));
+  const lines = [`${"Function Name".padEnd(width)}  Call Count  Elapsed Time  Average Time`, `${"=".repeat(width)}  ==========  ============  ============`];
+  for (const r of rows) lines.push(`${r.name.padEnd(width)}  ${String(r.count).padEnd(10)}  ${(r.time / 1000).toFixed(6).padEnd(12)}  ${(r.time / 1000 / r.count).toFixed(6)}`);
+  const buffer = "*ELP Profiling Results*";
+  e8.getBufferCreate(buffer);
+  e8.withCurrentBuffer(buffer, () => {
+    e8.deleteRegion(e8.pointMin(), e8.pointMax());
+    e8.insert(`${lines.join("\n")}\n`);
+    e8.gotoChar(e8.pointMin());
+  });
+  e8.call("display-buffer", buffer);
+}
+
+export const magitToggleProfiling = e8.defineCommand({
+  name: "magit-toggle-profiling",
+  doc: "Start profiling Magit, or if in progress, stop and display the results.",
+  run: () => {
+    if (magitProfiling()) {
+      e8.message("Stop profiling and display results...");
+      profileResults();
+      magitProfile(false);
+    } else {
+      e8.message("Start profiling Magit and Forge...");
+      magitProfile(true);
+    }
+  },
+});
+
+export const magitProfileRefreshBuffer = e8.defineCommand({
+  name: "magit-profile-refresh-buffer",
+  doc: "Profile refreshing the current Magit buffer.",
+  run: () => {
+    magitProfile(true);
+    e8.message("Profiling Magit and Forge...");
+    try {
+      magitRefreshBuffer();
+    } finally {
+      e8.message("Profiling Magit and Forge...done");
+      profileResults();
+      magitProfile(false);
+    }
+  },
 });

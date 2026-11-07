@@ -20,7 +20,7 @@ import { insertHeading, insertRoot, insertSection, sections, show } from "magit-
 import { readPasswd, truthy } from "subr";
 import { withEditorEnv, withEditorFilter } from "with-editor";
 import { magitConfirm } from "magit-base";
-import { magitGitExecutable, magitProcessGitArguments, magitToplevel, type GitArg } from "magit-git";
+import { magitGitExecutable, magitProcessGitArguments, magitProcessRecord, magitSetGitDebugReporter, magitToplevel, type GitArg } from "magit-git";
 import { magitBufferInfo, magitBufferName, magitProcessMode, magitRefresh, magitRepoName, magitSaveRepositoryBuffers, magitSetupBuffer } from "magit-mode";
 
 e8.defineFace({ name: "magit-process-ok", doc: "Face for zero exit-status.", attributes: { inherit: "magit-section-heading", weight: "bold" }, light: { foreground: "green" }, dark: { foreground: "green" } });
@@ -196,6 +196,7 @@ function processFinish(entry: ProcessEntry, exit: number, raise = false): number
 /** Runs PROGRAM with ARGS to the end, logging it, as magit-call-process; gives the exit code. */
 export function magitCallProcess(program: string, args: string[], input?: string, raise = false): number {
   const entry = processSetup(program, args);
+  magitProcessRecord(program, args, entry.pwd);
   const r = e8.callProcess([program, ...args], { directory: entry.pwd, input });
   entry.output = removeBogusErrors(r.output);
   return processFinish(entry, r.exit, raise);
@@ -259,6 +260,7 @@ interface StartOptions {
  */
 export function magitStartProcess(program: string, args: string[], options: StartOptions = {}): string {
   const entry = processSetup(program, args);
+  magitProcessRecord(program, args, entry.pwd);
   const commandBuffer = e8.currentBuffer();
   const connectionType = options.input === undefined && truthy(e8.variable("magit-process-connection-type")) ? "pty" : "pipe";
   const collect = (proc: string, output: string) => processFilter(entry, proc, output);
@@ -444,3 +446,30 @@ export const magitProcessBufferCommand = e8.defineCommand({
 /** The name of the repository's process buffer, as Magit's messages name it. */
 export const magitProcessBufferName = (dir = magitToplevel() ?? ""): string => magitBufferName("magit-process-mode", dir);
 void magitRepoName;
+
+// Debugging, after magit-process.el's magit-toggle-subprocess-record and
+// magit-git.el's reporting of git's errors with magit-git-debug.
+
+export const magitToggleSubprocessRecord = e8.defineCommand({
+  name: "magit-toggle-subprocess-record",
+  doc:
+    "Toggle whether subprocess invocations are recorded.\n\n" +
+    "When enabled, all subprocesses started by magit-process-file are logged into the buffer specified by magit-process-record-buffer-name using the format magit-process-record-entry-format.  This is for debugging purposes.\n\n" +
+    "This is in addition to and distinct from the default logging done by default, and additional logging enabled with magit-toggle-git-debug.",
+  run: () => {
+    const on = !truthy(e8.variable("magit-process-record-invocations"));
+    e8.setVariable("magit-process-record-invocations", on);
+    e8.message(`Recording of subprocess invocations ${on ? "enabled" : "disabled"}`);
+  },
+});
+
+// A git whose output Magit consumes, failing with magit-git-debug on, goes
+// in the process buffer with its error, as magit--git-insert does.
+magitSetGitDebugReporter((program, args, dir, exit, output) => {
+  e8.letBind({ "default-directory": dir }, () => {
+    const entry = processSetup(program, args);
+    entry.output = output;
+    entry.exit = exit;
+    redisplay(entry.dir);
+  });
+});

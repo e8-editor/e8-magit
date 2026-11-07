@@ -15,6 +15,7 @@
 import { currentSection, magitSectionMatch, type Section } from "magit-section";
 import { PerBuffer } from "subr";
 import { magitFormatTimeString } from "magit-base";
+import { transientDefinePrefix } from "transient";
 
 /** A margin's settings, as (INIT STYLE WIDTH AUTHOR AUTHOR-WIDTH): shown at first, age or age-abbreviated or a time format, width, whether the author shows, and how wide. */
 export type MarginConfig = [boolean, string, number | string, boolean, number];
@@ -194,4 +195,20 @@ export const magitToggleMarginDetails = e8.defineCommand({
     c[2] = magitLogMarginWidth(c[1], c[3], c[4]);
     magitSetBufferMargins(false, true);
   },
+});
+
+/** What the right margin shows, from a menu, as magit-margin-settings. */
+export const magitMarginSettings = transientDefinePrefix("magit-margin-settings", {
+  doc: "Change what information is displayed in the right margin.",
+  groups: [
+    {
+      description: "Margin",
+      items: [
+        ["L", "Toggle visibility", magitToggleMargin, { transient: true }],
+        ["l", "Cycle style", magitCycleMarginStyle, { transient: true }],
+        ["d", "Toggle details", magitToggleMarginDetails, { transient: true }],
+        ["v", "Change verbosity", "magit-refs-set-show-commit-count", { ifDerived: "magit-refs-mode" }],
+      ],
+    },
+  ],
 });
