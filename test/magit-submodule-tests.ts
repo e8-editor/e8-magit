@@ -198,6 +198,9 @@ ertDeftest("magit-insert-modules-shows-the-overview-and-unpushed-commits", () =>
   withRepos([root], () =>
     allowingFileProtocol(() => {
       addLib(superDir, lib);
+      // The clone has no user of its own, and CI has no global git configuration.
+      git(`${superDir}lib`, "config", "user.name", "Tester");
+      git(`${superDir}lib`, "config", "user.email", "tester@example.com");
       write(`${superDir}lib`, "three.txt", "Three");
       git(`${superDir}lib`, "add", "three.txt");
       git(`${superDir}lib`, "commit", "-q", "-m", "Three");
