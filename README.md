@@ -23,9 +23,12 @@ E8 installs it at its newest version tag into `repos/` beside `init.ts`, with [e
 | `TAB`, `C-<tab>`, `<backtab>` | hide and show the section at point, cycle it, cycle them all |
 | `n`, `p`, `M-n`, `M-p`, `^` | the next, previous, sibling and parent section |
 | `1` to `4` | show the sections to that level |
-| `s`, `u` | stage, unstage the file, hunk or section at point; with a region in a hunk, just its lines |
-| `S`, `U` | stage all changes to tracked files (untracked ones too with `C-u`), unstage everything |
-| `k` | discard the file, hunk or section at point, after asking; an untracked file is deleted |
+| `s`, `u` | stage, unstage the file, hunk or section at point, or the files or hunks the region selects; with a region in a hunk, just its lines; elsewhere, files read with completion; `C-u s` on an untracked file stages its name only (intent to add); `u` on a committed change reverses it in the index |
+| `S`, `U` | stage all changes to tracked files (untracked ones too with `C-u`), unstage everything, asking first as Magit does unless `magit-no-confirm` says not to |
+| `k` | discard the file, hunk, lines or section at point, after asking: an untracked file or directory is deleted (to the trash with `magit-delete-by-moving-to-trash`), a new file deleted, a rename undone, a conflicted file resolved to a side asked for, and a conflict's hunk resolved to the side point is in |
+| `a`, `v` | apply the change at point (a hunk, file or lines from a commit's, stash's or diff's buffer) to the worktree, or reverse it; with `C-u`, a 3-way merge |
+| `C-c ^ RET`, `u`, `b`, `l`, `a` | on a conflict's hunk, keep the side point is in, the upper, base or lower version, or all of them |
+| `x` | reset HEAD and the index to a commit read, the worktree too with `C-u` |
 | `RET` | visit the file at point, on the hunk's line, or show the commit or stash at point |
 | `g`, `G` | refresh this buffer, or all of the repository's |
 | `$` | the git commands run and their output |
@@ -43,7 +46,7 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 ## What works
 
 - **The status buffer**: the branch and its upstream (`Merge:` or `Rebase:`), push remote and tag; untracked files, unstaged and staged changes as diffs of files and hunks; stashes; the commits not pushed and not pulled; and the recent commits.
-- **Applying**: `s`, `u` and `k` on a file, a hunk, the lines of a region in a hunk, or a whole section; `S` and `U`.
+- **Applying**, as magit-apply.el: `s`, `u`, `k`, `a` and `v` on a file, the files or hunks of a region, a hunk, the lines of a region in a hunk, or a whole section, in the status buffer and in diff, commit and stash buffers; staging untracked directories and intent to add; `magit-stage-files` and `magit-unstage-files` with completion; `S` and `U`; `magit-reverse-in-index`; discarding by what git status says of each file (resolving a conflict with `magit-checkout-stage`, bringing back a deleted file, deleting a new one, undoing a rename); `magit-smerge-keep-*` on a conflict's hunk; `magit-post-stage-hook` and `magit-post-unstage-hook`; `magit-reset-quickly` (`x`).
 - **Commit** (`c`): commit, extend, amend, reword, fixup, squash, alter, augment, revise, and instant fixup and squash, with the commit's diff shown beside the message.
 - **Branch** (`b`): checkout, create, spin off and spin out, rename, reset and delete, and the branch's and repository's configuration.
 - **Push** (`P`), **pull** (`F`) and **fetch** (`f`): to and from the push remote, the upstream (set when there is none) or elsewhere, refspecs, matching branches and tags.
@@ -67,7 +70,8 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 
 ## What is missing
 
-- **Not there at all**: blame; ediff; applying or reversing a change from elsewhere (`a`, `v`). Their keys in the menus say so.
+- **Not there at all**: blame; ediff. Their keys in the menus say so.
+- **Applying**: E8 has no smerge-mode, so the `magit-smerge-keep-*` commands keep a side with smerge's rules ported into magit-apply.ts, and do not start smerge-mode in a buffer still conflicted; E8 has no `completing-read-multiple`, so `magit-stage-files` and `magit-unstage-files` complete one name and take several separated by commas; the wip modes, which magit-apply.el commits to, are not there yet (step 14); a nested repository among untracked files is left alone, as Magit leaves it without borg; and the stash buffer's Staged and Unstaged parts are not the `stashed-index` and `stashed-worktree` sections Magit applies whole.
 - Suffixes Magit puts above level 4 (signing, `--exec`, a rebase's strategy, some of clone's) are left out of the menus until E8's transient has levels (E8 0.5).
 - Only programs E8 starts can use E8 as their editor (see e8-with-editor).
 

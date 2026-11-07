@@ -256,3 +256,10 @@ export const magitModeBuryBuffer = e8.defineCommand({
   params: [{ name: "kill", kind: "prefix" }],
   run: (kill: e8.Value) => e8.call("quit-window", truthy(kill)),
 });
+
+/** A placeholder that keymaps of sections remap to what deletes the thing at point, as magit-delete-thing. */
+export const magitDeleteThing = e8.defineCommand({
+  name: "magit-delete-thing",
+  doc: "This is a placeholder command, which signals an error if called.\nWhere applicable, other keymaps remap this command to another, which actually deletes the thing at point.",
+  run: () => e8.userError("There is no thing at point that could be deleted"),
+});

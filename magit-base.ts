@@ -19,6 +19,11 @@ e8.defineVariable({
   value: [],
 });
 e8.defineVariable({
+  name: "magit-verbose-messages",
+  doc: "Whether to make certain prompts and messages more verbose.",
+  value: false,
+});
+e8.defineVariable({
   name: "magit-delete-by-moving-to-trash",
   doc: "Whether Magit uses the system's trash can when it deletes files.",
   value: true,
@@ -102,6 +107,44 @@ export function magitConfirm(action: string | true, prompt?: string, promptN?: s
   question = question.charAt(0).toUpperCase() + question.slice(1);
   if (!ask(question)) e8.signal("quit", "Quit");
   return items ?? true;
+}
+
+/** ACTION as a prompt, its dashes spaces and its first letter capital, as magit-confirm-make-prompt. */
+export const magitConfirmMakePrompt = (action: string): string => `${action.charAt(0).toUpperCase()}${action.slice(1)}`.replace(/-/g, " ");
+
+/** Asks before ACTION on FILES, naming them, as magit-confirm-files; nothing without files. */
+export function magitConfirmFiles(action: string, files: string[], prompt?: string): string[] | undefined {
+  if (files.length === 0) return undefined;
+  const p = prompt ?? magitConfirmMakePrompt(action);
+  return magitConfirm(action, `${p} "%s"`, `${p} %d files`, files) as string[];
+}
+
+/**
+ * Asks with CLAUSES, each [char, description, value], as
+ * magit-read-char-case: the prompt lists the descriptions, with VERBOSE
+ * "[C-g] to abort" too, and the value of the clause of the key typed is
+ * the answer.
+ */
+export function magitReadCharCase<T>(prompt: string, verbose: boolean, clauses: [string, string, T][]): T {
+  const parts = [...clauses.map((c) => c[1]), ...(verbose ? ["[C-g] to abort"] : [])];
+  const c = e8.readCharChoice(`${prompt}${parts.slice(0, -1).join(", ")}, or ${parts[parts.length - 1]} `, clauses.map((cl) => cl[0]).join(""));
+  e8.message("");
+  return clauses.find((cl) => cl[0] === c)![2];
+}
+
+/**
+ * Reads one or more of COLLECTION, separated by commas, as
+ * magit-completing-read-multiple: empty input is the default, if any.
+ * E8 has no completing-read-multiple, so the minibuffer completes the
+ * input as a whole.
+ */
+export function magitCompletingReadMultiple(prompt: string, collection: string[], requireMatch = false, def?: string): string[] {
+  const choices = def !== undefined && !collection.includes(def) ? [def, ...collection] : collection;
+  const reply = e8.completingRead(prompt, choices, { requireMatch: false, default: def });
+  const items = (reply ?? "").split(/[ \t]*,[ \t]*/).filter((x) => x !== "");
+  if (items.length === 0 && def !== undefined) return [def];
+  if (requireMatch) for (const item of items) if (!choices.includes(item)) e8.userError(`No match for ${item}`);
+  return items;
 }
 
 /** Whether the prefix argument was given, as current-prefix-arg in a command. */

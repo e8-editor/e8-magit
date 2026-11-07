@@ -12,9 +12,12 @@
 // option) any later version.
 
 import { insertHeading, insertSection } from "magit-section";
-import { magitGetShortname, magitGitString, magitMergeInProgressP } from "magit-git";
+import { magitFileStatus, magitGetShortname, magitGitString, magitMergeInProgressP, magitTrackedFiles, magitUnmergedFiles, magitCurrentFile } from "magit-git";
+import { magitCompletingRead, magitReadCharCase } from "magit-base";
+import { magitCallGit, magitRunGit } from "magit-process";
 import { magitInsertLog } from "magit-log";
 import { magitFileLines } from "magit-sequence";
+import { truthy } from "subr";
 
 /** The range of what is being merged into HEAD, from their merge base, as magit--merge-range. */
 export function magitMergeRange(head?: string): string | undefined {
@@ -34,3 +37,36 @@ export function magitInsertMergeLog(): void {
     magitInsertLog(range, args.includes("--decorate=full") ? args : ["--decorate=full", ...args]);
   }, "magit-insert-merge-log");
 }
+
+// Conflicts.
+
+/** Asks which stage of FILE to check out, as magit-checkout-read-stage. */
+export const magitCheckoutReadStage = (file: string): string =>
+  magitReadCharCase(`For ${file} checkout: `, true, [
+    ["o", "[o]ur stage", "--ours"],
+    ["t", "[t]heir stage", "--theirs"],
+    ["c", truthy(e8.variable("magit-verbose-messages")) ? "restore [c]onflict" : "[c]onflict", "--merge"],
+  ]);
+
+/** During a conflict checkout and stage side, or restore conflict, as magit-checkout-stage: ARG is --ours, --theirs or --merge. */
+export function magitCheckoutStage(file: string, arg: string): void {
+  const st = magitFileStatus(file)[0] ?? "";
+  const [x, y] = [st.charAt(0), st.charAt(1)];
+  if ((arg === "--ours" && x === "D") || (arg === "--ours" && x === "U" && y === "A") || (arg === "--theirs" && y === "D") || (arg === "--theirs" && x === "A" && y === "U")) magitRunGit("rm", "--", file);
+  else if (arg === "--merge") magitRunGit("checkout", "--merge", "--", file);
+  else {
+    magitCallGit("checkout", arg, "--", file);
+    magitRunGit("add", "-u", "--", file);
+  }
+}
+
+export const magitCheckoutStageCommand = e8.defineCommand({
+  name: "magit-checkout-stage",
+  doc: "During a conflict checkout and stage side, or restore conflict.",
+  run: () => {
+    const file = magitCompletingRead("Checkout file", magitTrackedFiles(), { requireMatch: "any", history: "magit-read-file-hist", def: magitCurrentFile() })!;
+    if (magitUnmergedFiles().includes(file)) magitCheckoutStage(file, magitCheckoutReadStage(file));
+    else if (e8.yesOrNoP(`Restore conflicts in ${file}? `)) magitCheckoutStage(file, "--merge");
+    else e8.userError("Quit");
+  },
+});

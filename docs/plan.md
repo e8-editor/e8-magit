@@ -19,7 +19,7 @@ Sizes are the Lisp ported, from `wc -l` of Magit 4.4.0's `lisp/`; the port is ab
 | 10 | Gitignore, notes, patches, refs, worktrees, submodules, subtrees, bisect | 2,900 | done: one module each; the refs buffer matches 3 new oracle cases |
 | 11 | Files: file-dispatch, blobs, tracked files, file logs | 1,200 | done: magit-files.ts; magit-edit-line-commit moves to step 12, as it needs blame |
 | 12 | Blame | 1,000 | not started |
-| 13 | Applying from elsewhere, conflicts, the rest of magit-apply.el | 800 | not started |
+| 13 | Applying from elsewhere, conflicts, the rest of magit-apply.el | 800 | done: magit-apply.ts, staging, unstaging and discarding moved there from magit.ts; smerge's keep rules ported in it, as E8 has no smerge-mode; `x` and `magit-checkout-stage` beside |
 | 14 | Extras: wip, autorevert, bookmarks, repositories, sparse checkout, info | 2,100 | not started |
 | 15 | Ediff: an `e8-ediff` package, then magit-ediff.el | 600 + ediff | not started |
 | 16 | The parity audit: every command, option, face and key | | not started |
