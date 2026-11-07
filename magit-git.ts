@@ -1027,3 +1027,17 @@ export const magitReadRemoteOrUrl = (prompt: string, def?: string): string =>
 
 /** Reads a submodule's path, as magit-read-module-path. */
 export const magitReadModulePath = (prompt: string): string => magitCompletingRead(prompt, magitListModulePaths(), { requireMatch: true, def: magitModuleAtPoint() })!;
+
+let gitVersion: string | undefined;
+/** Git's version, as 2.51.2, as magit-git-version. */
+export function magitGitVersion(): string {
+  gitVersion ??= /(\d+(?:\.\d+)*)/.exec(magitGitString("version") ?? "")?.[1] ?? "0";
+  return gitVersion;
+}
+/** Whether git's version is at least N, as magit-git-version>=. */
+export function magitGitVersionGe(n: string): boolean {
+  const a = magitGitVersion().split(".").map(Number);
+  const b = n.split(".").map(Number);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+  return true;
+}

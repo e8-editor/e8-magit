@@ -9,6 +9,7 @@
 // `make test` runs them in e8 --batch, as CI does.
 
 import { ertDeftest, should, shouldEqual } from "ert";
+import { magitGitVersionGe } from "magit-git";
 
 // Loading magit runs no git: required here, outside a repository and with
 // no git to run, as at startup anywhere. The test below checks what happened.
@@ -400,12 +401,26 @@ ertDeftest("magit-an-instant-fixup-goes-into-the-commit", () => {
   });
 });
 
+/** Goes to the line of the commit HASH in the current Magit buffer. */
+function gotoCommit(hash: string): void {
+  // Recent commits starts collapsed, as in Magit: TAB on its heading shows them.
+  const heading = e8.bufferText().indexOf("Recent commits");
+  should(heading >= 0, e8.bufferText());
+  e8.gotoChar(e8.pointMin() + heading);
+  e8.executeKbdMacro("TAB");
+  const at = e8.bufferText().indexOf(`\n${hash} `);
+  should(at >= 0, `${hash} not shown`);
+  e8.gotoChar(e8.pointMin() + at + 1);
+}
+
 ertDeftest("magit-an-interactive-rebase-edits-the-todo-list-in-e8", () => {
   const dir = history();
   withRepos([dir], () => {
     status(dir);
     const first = git(dir, "rev-parse", "--short", "HEAD~2").trim();
-    e8.executeKbdMacro(`r i ${typed(first)} RET`);
+    // On the commit in Recent commits, as Magit rebases from the commit at point.
+    gotoCommit(first);
+    e8.executeKbdMacro("r i");
     settle(() => e8.bufferName() === "git-rebase-todo");
     shouldEqual(e8.bufferName(), "git-rebase-todo");
     const todo = e8.bufferText();
@@ -427,11 +442,181 @@ ertDeftest("magit-rewording-a-commit-writes-its-message-again", () => {
   withRepos([dir], () => {
     status(dir);
     const second = git(dir, "rev-parse", "--short", "HEAD~").trim();
-    e8.executeKbdMacro(`r w ${typed(second)} RET`);
+    gotoCommit(second);
+    e8.executeKbdMacro("r w");
     settle(() => e8.bufferName() === "COMMIT_EDITMSG");
     shouldEqual(e8.bufferName(), "COMMIT_EDITMSG");
     e8.executeKbdMacro(`C-k ${typed("Second")} C-c C-c`);
     settle(() => git(dir, "log", "--format=%s") === "Three\nSecond\nOne\n");
     shouldEqual(git(dir, "log", "--format=%s"), "Three\nSecond\nOne\n");
+  });
+});
+
+// The sequencer, after magit-sequence.el: cherry-picking, reverting,
+// applying patches, and the rebase todo list's own mode.
+
+const subjects = (dir: string, rev = "HEAD"): string => git(dir, "log", "--format=%s", rev);
+const short = (dir: string, rev: string): string => git(dir, "rev-parse", "--short", rev).trim();
+
+ertDeftest("magit-cherry-picking-copies-a-commit-here", () => {
+  const dir = history();
+  withRepos([dir], () => {
+    const three = short(dir, "HEAD");
+    git(dir, "checkout", "-q", "-b", "side", "HEAD~2");
+    status(dir);
+    e8.executeKbdMacro(`A A ${typed(three)} RET`);
+    settle(() => subjects(dir) === "Three\nOne\n");
+    shouldEqual(subjects(dir), "Three\nOne\n");
+  });
+});
+
+ertDeftest("magit-spinning-off-moves-commits-to-a-new-branch", () => {
+  const dir = history();
+  withRepos([dir], () => {
+    const three = short(dir, "HEAD");
+    status(dir);
+    // The last commit goes to topic, made from main's parent; main loses it.
+    e8.executeKbdMacro(`A s ${typed(three)} RET ${typed("HEAD~1")} RET ${typed("topic")} RET`);
+    settle(() => subjects(dir, "main") === "Two\nOne\n" && git(dir, "branch", "--show-current") === "topic\n");
+    shouldEqual(subjects(dir, "main"), "Two\nOne\n");
+    shouldEqual(subjects(dir, "topic"), "Three\nTwo\nOne\n");
+    shouldEqual(git(dir, "branch", "--show-current"), "topic\n");
+  });
+});
+
+ertDeftest("magit-reverting-commits-the-reversion", () => {
+  const dir = history();
+  withRepos([dir], () => {
+    const two = short(dir, "HEAD~");
+    status(dir);
+    // --edit is on at first, as in Magit: the message is written in E8.
+    e8.executeKbdMacro(`V V ${typed(two)} RET`);
+    settle(() => e8.bufferName() === "COMMIT_EDITMSG");
+    shouldEqual(e8.bufferName(), "COMMIT_EDITMSG");
+    e8.executeKbdMacro("C-c C-c");
+    settle(() => subjects(dir).startsWith("Revert"));
+    shouldEqual(subjects(dir).split("\n")[0], 'Revert "Two"');
+    should(!e8.fileExistsP(e8.expandFileName("two.txt", dir)), "two.txt is gone");
+  });
+});
+
+ertDeftest("magit-applying-a-patch-by-email", () => {
+  const dir = history();
+  withRepos([dir], () => {
+    const patch = git(dir, "format-patch", "-1", "HEAD", "-o", e8.expandFileName(".git/patches", dir)).trim();
+    git(dir, "reset", "-q", "--hard", "HEAD~");
+    status(dir);
+    e8.executeKbdMacro(`w w ${typed(patch)} RET`);
+    settle(() => subjects(dir) === "Three\nTwo\nOne\n");
+    shouldEqual(subjects(dir), "Three\nTwo\nOne\n");
+  });
+});
+
+ertDeftest("magit-sequencer-commands-say-when-nothing-is-in-progress", () => {
+  const dir = history();
+  withRepos([dir], () => {
+    status(dir);
+    for (const [command, message] of [
+      ["magit-sequencer-continue", "No cherry-pick or revert in progress"],
+      ["magit-am-skip", "Not applying any patches"],
+      ["magit-rebase-continue", "No rebase in progress"],
+    ]) {
+      let error = "";
+      try {
+        e8.call(command as e8.CommandName);
+      } catch (e) {
+        error = String(e);
+      }
+      should(error.includes(message), `${command}: ${error}`);
+    }
+  });
+});
+
+/** A todo list in git-rebase-mode, in a repository's git directory. */
+function todoBuffer(dir: string, text: string): void {
+  e8.call("delete-other-windows");
+  e8.call("switch-to-buffer", "git-rebase-todo");
+  e8.setVariable("default-directory", `${dir}/`);
+  e8.letBind({ "inhibit-read-only": true }, () => {
+    e8.deleteRegion(e8.pointMin(), e8.pointMax());
+    e8.insert(text);
+  });
+  e8.gotoChar(e8.pointMin());
+  e8.call("git-rebase-mode" as e8.CommandName);
+  e8.gotoChar(e8.pointMin());
+}
+
+const TODO = `pick 1111111 One
+pick 2222222 Two
+pick 3333333 Three
+
+# Rebase 0000000..3333333 onto 0000000 (3 commands)
+#
+# Commands:
+# p, pick <commit> = use commit
+# r, reword <commit> = use commit, but edit the commit message
+# e, edit <commit> = use commit, but stop for amending
+# s, squash <commit> = use commit, but meld into previous commit
+# f, fixup [-C | -c] <commit> = like "squash" but keep only the previous
+#                    commit's log message, unless -C is used, in which case
+#                    keep only this commit's message; -c is same as -C but
+#                    opens the editor
+# x, exec <command> = run command (the rest of the line) using shell
+# b, break = stop here (continue rebase later with 'git rebase --continue')
+# d, drop <commit> = remove commit
+# l, label <label> = label current HEAD with a name
+# t, reset <label> = reset HEAD to a label
+# m, merge [-C <commit> | -c <commit>] <label> [# <oneline>]
+#         create a merge commit using the original merge commit's
+#         message (or the oneline, if no original merge commit was
+#         specified); use -c <commit> to reword the commit message
+# u, update-ref <ref> = track a placeholder for the <ref> to be updated
+#                       to this position in the new commits. The <ref> is
+#                       updated at the end of the rebase
+#
+# These lines can be re-ordered; they are executed from top to bottom.
+`;
+
+const todoLines = (n: number): string[] => e8.bufferText().split("\n").slice(0, n);
+
+ertDeftest("git-rebase-mode-sets-actions-moves-and-comments-lines", () => {
+  const dir = history();
+  withRepos([dir], () => {
+    todoBuffer(dir, TODO);
+    shouldEqual(e8.variable("major-mode"), "git-rebase-mode");
+    // r rewords and moves on, f fixes up, k comments the third line out and back in.
+    // Magit writes the subject as a comment, as git 2.50 and later do.
+    const c = magitGitVersionGe("2.50.0") ? "# " : "";
+    e8.executeKbdMacro("r f");
+    shouldEqual(todoLines(3), [`reword 1111111 ${c}One`, `fixup 2222222 ${c}Two`, "pick 3333333 Three"]);
+    e8.executeKbdMacro("k");
+    shouldEqual(todoLines(3)[2], "# pick 3333333 Three");
+    e8.executeKbdMacro("p k");
+    shouldEqual(todoLines(3)[2], "pick 3333333 Three");
+    // M-p moves the line at point up, M-n down.
+    e8.gotoChar(e8.pointMin());
+    e8.executeKbdMacro("n M-p");
+    shouldEqual(todoLines(3), [`fixup 2222222 ${c}Two`, `reword 1111111 ${c}One`, "pick 3333333 Three"]);
+    e8.executeKbdMacro("M-n");
+    shouldEqual(todoLines(3), [`reword 1111111 ${c}One`, `fixup 2222222 ${c}Two`, "pick 3333333 Three"]);
+    // x adds a command to run after the line at point; b a break.
+    e8.gotoChar(e8.pointMin());
+    e8.executeKbdMacro(`x ${typed("make test")} RET`);
+    shouldEqual(todoLines(3), [`reword 1111111 ${c}One`, "exec make test", `fixup 2222222 ${c}Two`]);
+    e8.executeKbdMacro("b");
+    shouldEqual(todoLines(4)[2], "break");
+  });
+});
+
+ertDeftest("git-rebase-mode-shows-its-own-keys-in-the-instructions", () => {
+  const dir = history();
+  withRepos([dir], () => {
+    todoBuffer(dir, TODO);
+    const text = e8.bufferText();
+    should(text.includes("# C-c C-c  tell Git to make it happen\n"), text);
+    should(text.includes("# c        pick <commit> = use commit\n"), text);
+    should(text.includes("# M-p      move the commit at point up\n"), text);
+    should(!text.includes("# p, pick"), text);
+    should(!e8.bufferModified(), "showing the keys leaves the buffer unmodified");
   });
 });

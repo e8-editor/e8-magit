@@ -13,8 +13,8 @@ Sizes are the Lisp ported, from `wc -l` of Magit 4.4.0's `lisp/`; the port is ab
 | 4 | Diffs complete, after magit-diff.el | 3,700 | done: magit-diff.ts; 25 of 34 cases |
 | 5 | The status buffer complete, after magit-status.el | 800 | done: magit-status.ts and the status inserters |
 | 6 | Logs complete: margin, graph, reflog, cherries | 2,600 | done: magit-log.ts, magit-margin.ts; all 44 cases |
-| 7 | Transient complete, in E8's `packages/transient.ts` | 5,900 | not started |
-| 8 | The sequencer: cherry-pick, revert, am, rebase in progress | 1,100 | not started |
+| 7 | Transient complete, in E8's `packages/transient.ts` | 5,900 | done: e8-editor/e8#43, levels, saved values, history, return, incompatible arguments |
+| 8 | The sequencer: cherry-pick, revert, am, rebase in progress | 1,100 | done: magit-sequence.ts, git-rebase.ts |
 | 9 | The menus that are one command: tag, remote, clone, init, run | 1,300 | not started |
 | 10 | Gitignore, notes, patches, refs, worktrees, submodules, subtrees, bisect | 2,900 | not started |
 | 11 | Files: file-dispatch, blobs, tracked files, file logs | 1,200 | not started |
