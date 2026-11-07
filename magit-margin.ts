@@ -13,8 +13,9 @@
 // option) any later version.
 
 import { currentSection, magitSectionMatch, type Section } from "magit-section";
-import { PerBuffer } from "subr";
-import { magitFormatTimeString } from "magit-base";
+import { PerBuffer, truthy } from "subr";
+import { magitEllipsis, magitFormatTimeString } from "magit-base";
+import { transientDefinePrefix } from "transient";
 
 /** A margin's settings, as (INIT STYLE WIDTH AUTHOR AUTHOR-WIDTH): shown at first, age or age-abbreviated or a time format, width, whether the author shows, and how wide. */
 export type MarginConfig = [boolean, string, number | string, boolean, number];
@@ -114,6 +115,8 @@ export function magitSetBufferMargins(reset = false, refresh = false): void {
   if (refresh && e8.fboundp("magit-refresh")) e8.call("magit-refresh" as e8.CommandName);
 }
 
+e8.defun("magit-set-buffer-margins", (reset?: e8.Value, refresh?: e8.Value) => magitSetBufferMargins(truthy(reset ?? null), truthy(refresh ?? null)));
+
 /** Shows STRING in the right margin of the previous line, or of this one, as magit-make-margin-overlay. */
 export function magitMakeMarginOverlay(string?: string | e8.PropertizedString, previousLine?: boolean): void {
   const atBol = e8.point() === e8.lineStart(e8.lineOf(e8.point()));
@@ -140,7 +143,9 @@ export function magitLogFormatAuthorMargin(author: string, date: string | number
   const [, style, width, details, detailsWidth] = c;
   const parts: e8.PropertizedString[] = [];
   if (details) {
-    const a = author.length > detailsWidth ? `${author.slice(0, detailsWidth - 1)}…` : author.padEnd(detailsWidth);
+    // Truncated with magit-ellipsis's margin ellipsis, as truncate-string-to-width.
+    const ellipsis = magitEllipsis("margin");
+    const a = author.length > detailsWidth ? `${author.slice(0, Math.max(0, detailsWidth - ellipsis.length))}${ellipsis}` : author.padEnd(detailsWidth);
     parts.push(e8.propertize(a, { "font-lock-face": "magit-log-author" }), e8.propertize(" ", {}));
   }
   let text: string;
@@ -194,4 +199,20 @@ export const magitToggleMarginDetails = e8.defineCommand({
     c[2] = magitLogMarginWidth(c[1], c[3], c[4]);
     magitSetBufferMargins(false, true);
   },
+});
+
+/** What the right margin shows, from a menu, as magit-margin-settings. */
+export const magitMarginSettings = transientDefinePrefix("magit-margin-settings", {
+  doc: "Change what information is displayed in the right margin.",
+  groups: [
+    {
+      description: "Margin",
+      items: [
+        ["L", "Toggle visibility", magitToggleMargin, { transient: true }],
+        ["l", "Cycle style", magitCycleMarginStyle, { transient: true }],
+        ["d", "Toggle details", magitToggleMarginDetails, { transient: true }],
+        ["v", "Change verbosity", "magit-refs-set-show-commit-count", { ifDerived: "magit-refs-mode" }],
+      ],
+    },
+  ],
 });

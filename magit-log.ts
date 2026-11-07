@@ -21,7 +21,7 @@
 import { currentSection, insertHeading, insertRoot, insertSection, magitCancelSection, magitSectionDefineType, magitSectionGoto, magitSectionMatch, magitSectionSiblings, sections, type Section } from "magit-section";
 import { truthy } from "subr";
 import { transientArgs } from "transient";
-import { magitCompletingRead, magitReadString } from "magit-base";
+import { magitCompletingRead, magitReadString, magitWithMinibufferMap } from "magit-base";
 import {
   magitAbbrevLength,
   magitBranchOrCommitAtPoint,
@@ -43,6 +43,7 @@ import {
   magitReadLocalBranchOrRef,
   magitReadOtherBranch,
   magitReadRangeOrCommit,
+  magitReadShelvedBranch,
   magitRefAbbrev,
   magitRevAbbrev,
   magitRevAncestorP,
@@ -51,8 +52,9 @@ import {
   magitRevParse,
   magitRevVerify,
 } from "magit-git";
-import { magitBufferInfo, magitBufferName, magitGetModeBuffer, magitLogMode, magitModeBuryBuffer, magitRefresh, magitRefreshBuffer, magitReflogMode, magitSetupBuffer } from "magit-mode";
-import { inserters, magitDiffWashDiffs, magitShowCommitRev, runSectionHook } from "magit-diff";
+import { magitBufferInfo, magitBufferName, magitGetModeBuffer, magitLogMode, magitModeBuryBuffer, magitRefresh, magitRefreshBuffer, magitReflogMode, magitSetupBuffer, magitMode } from "magit-mode";
+import { magitRunGit } from "magit-process";
+import { inserters, magitDiffVisitFileNoselect, magitDiffWashDiffs, magitShowCommitRev, magitUseBufferArguments, magitUseBufferArgumentsBuffer, magitWithTempPosition, runSectionHook } from "magit-diff";
 import { magitLogFormatMargin, magitMakeMarginOverlay, magitRightMarginActive, magitSetBufferMargins } from "magit-margin";
 
 // Faces.
@@ -113,10 +115,36 @@ export function magitLogArguments(mode = "magit-log-mode"): [string[], string[]]
     const args = transientArgs(String(current));
     return [args.filter((a) => !a.startsWith("-- ")), args.filter((a) => a.startsWith("-- ")).flatMap((a) => a.slice(3).split(","))];
   }
-  if (String(e8.variable("major-mode")) === mode && Array.isArray(e8.variable("magit-buffer-log-args"))) {
+  return magitLogGetValue(mode, "direct");
+}
+
+/**
+ * The log arguments and files for a buffer of MODE, as magit-log--get-value:
+ * the current buffer's when it is of MODE, or another buffer of MODE's, as
+ * USE-BUFFER-ARGS allows (prefix, status, direct, or always, selected,
+ * current or never), else MODE's defaults.
+ */
+export function magitLogGetValue(mode: string, useBufferArgs = "direct"): [string[], string[]] {
+  const use = magitUseBufferArguments(useBufferArgs);
+  if (["always", "selected", "current"].includes(use) && String(e8.variable("major-mode")) === mode && Array.isArray(e8.variable("magit-buffer-log-args"))) {
     return [e8.variable("magit-buffer-log-args") as string[], (e8.variable("magit-buffer-log-files") as string[] | null) ?? []];
   }
+  const buffer = magitUseBufferArgumentsBuffer(mode, use);
+  const args = buffer && e8.bufferLocalValue("magit-buffer-log-args", buffer);
+  if (buffer && Array.isArray(args)) return [args as string[], (e8.bufferLocalValue("magit-buffer-log-files", buffer) as string[] | null) ?? []];
   return [defaultLogArgs[mode] ?? ["-n256", "--decorate"], []];
+}
+
+/**
+ * The value the magit-log menu starts with, as its transient-init-value:
+ * the arguments as magit-prefix-use-buffer-arguments allows, limited to
+ * the file the buffer visits, if any, unless from magit-dispatch.
+ */
+export function magitLogPrefixValue(): string[] {
+  let [args, files] = magitLogGetValue("magit-log-mode", "prefix");
+  const file = e8.variable("transient-current-command") !== "magit-dispatch" ? magitFileRelativeName() : undefined;
+  if (file) files = [file];
+  return files.length > 0 ? [`-- ${files.join(",")}`, ...args] : args;
 }
 
 /** The commit limit -n of ARGS, as magit-log-get-commit-limit. */
@@ -127,9 +155,34 @@ export function magitLogGetCommitLimit(args = (e8.variable("magit-buffer-log-arg
 
 const fl = (text: string, face: string | string[]): e8.PropertizedString => e8.propertize(text, { "font-lock-face": face });
 
+e8.defineVariable({
+  name: "magit-log-trace-definition-function",
+  doc: "Function used to determine the function at point.\nThis is used by the command magit-log-trace-definition.\nYou should prefer magit-which-function over which-function because the latter may make use of Imenu's outdated cache.",
+  value: "magit-which-function",
+});
+e8.defineVariable({
+  name: "magit-log-trailer-labels",
+  doc: "Whether and how to insert labels, derived from commit message trailers.\n\nIf non-nil, the value has the form (FUNCTION . OPTIONS).  FUNCTION is called with one argument, the trailers as an alist, and should return a string, which is then inserted in between the refnames and the message, or nil.  OPTIONS specifies additional options for \"%(trailers)\".  You should probably use something like \"key=KEY1,key=KEY2,only=true\".  \"unfold=true,separator=^^,key_value_separator=^_\" is always appended to the options specified here.  See the git-log(1) manpage.\n\nIn E8 the value is a list [FUNCTION, OPTIONS], and each trailer a list [KEY, VALUE].",
+  value: null,
+});
+
+/**
+ * The name of the function at point, without caching, as
+ * magit-which-function: which-function, with Imenu's index forgotten.
+ */
+export function magitWhichFunction(): string | undefined {
+  e8.setVariable("imenu--index-alist", null);
+  if (!e8.fboundp("which-function")) return undefined;
+  return (e8.funcall("which-function") as string | null) ?? undefined;
+}
+e8.defun("magit-which-function", magitWhichFunction);
+
+/** STRING with the characters special in Emacs regexps quoted, as regexp-quote. */
+const regexpQuote = (string: string): string => string.replace(/[[*.\\?+^$]/g, (c) => `\\${c}`);
+
 // Washing.
 
-const headingRe = /^([-_/|\\*o<>. ]*)([0-9a-fA-F]+)?\f([^\f\n]+)?\f([BGUXYREN])?\f([^\f\n]*)\f([^\f\n]*)\f(.*)$/;
+const headingRe = /^([-_/|\\*o<>. ]*)([0-9a-fA-F]+)?\f([^\f\n]+)?\f([BGUXYREN])?\f([^\f\n]*)\f([^\f\n]*)\f([^\f\n]+)?\f(.*)$/;
 const cherryRe = /^([-+]) ([0-9a-fA-F]+) (.*)$/;
 const moduleRe = /^(?:([<>]) )?([0-9a-fA-F]+) (.*)$/;
 const bisectVisRe = /^([-_/|\\*o<>. ]*)([0-9a-fA-F]+)?\0([^\0\n]+)?\0(.*)$/;
@@ -151,6 +204,8 @@ interface Rev {
   cherry?: string;
   refsub?: string;
   side?: string;
+  /** The trailers, as magit-log-trailer-labels asks git for them. */
+  trailers?: string;
 }
 
 function matchRev(style: LogStyle, line: string): Rev | undefined {
@@ -158,7 +213,7 @@ function matchRev(style: LogStyle, line: string): Rev | undefined {
   switch (style) {
     case "log":
       m = headingRe.exec(line);
-      return m ? { graph: m[1], hash: m[2], refs: m[3], gpg: m[4], author: m[5], date: m[6], msg: m[7] } : undefined;
+      return m ? { graph: m[1], hash: m[2], refs: m[3], gpg: m[4], author: m[5], date: m[6], trailers: m[7], msg: m[8] } : undefined;
     case "cherry":
       m = cherryRe.exec(line);
       return m ? { cherry: m[1], hash: m[2], msg: m[3] } : undefined;
@@ -299,10 +354,12 @@ function washRev(w: LogWash): boolean {
     if (rev.graph) e8.insert(rev.graph);
     if (!align) e8.insert(e8.concat(hashText, " "));
     const afterSummary = truthy(e8.variable("magit-log-show-refname-after-summary"));
+    const trailers = trailerLabel(rev.trailers);
     if (rev.refs && !afterSummary) {
       const labels = magitFormatRefLabels(rev.refs);
       e8.insert(labels === "" ? " " : e8.concat(labels, " "));
     }
+    if (trailers !== undefined && !afterSummary) e8.insert(e8.concat(trailers, " "));
     if (w.style === "reflog") {
       e8.insert(`${String(w.count - 1).padEnd(2)} `);
       if (rev.refsub) e8.insert(magitReflogFormatSubject(rev.refsub.slice(0, rev.refsub.includes(":") ? -2 : -1)));
@@ -312,6 +369,7 @@ function washRev(w: LogWash): boolean {
       e8.insert(" ");
       e8.insert(magitFormatRefLabels(rev.refs));
     }
+    if (trailers !== undefined && afterSummary) e8.insert(e8.concat(" ", trailers));
     e8.insert("\n");
     if (w.style === "log" || w.style === "reflog" || w.style === "stash") {
       let date: string | number | undefined = rev.date;
@@ -385,13 +443,30 @@ function logGitArgs(revs: string | string[] | undefined, args: string[], files: 
     header = `\n${String(e8.variable("magit-log-revision-headers-format"))}\n`;
   }
   const date = truthy(e8.variable("magit-log-margin-show-committer-date")) ? "%ct" : "%at";
-  const format = `--format=${a.includes("--left-right") && !a.includes("--graph") ? "%m " : ""}%h%x0c${a.includes("--decorate") ? "%D" : ""}%x0c${gpg}%x0c%aN%x0c${date}%x0c%s${header}`;
+  const format = `--format=${a.includes("--left-right") && !a.includes("--graph") ? "%m " : ""}%h%x0c${a.includes("--decorate") ? "%D" : ""}%x0c${gpg}%x0c%aN%x0c${date}%x0c${trailerLabelsFormat()}%x0c%s${header}`;
   const order = a.find((x) => /^\+\+order=(.+)$/.test(x));
   if (order) a = [`--${order.slice(8)}-order`, ...a.filter((x) => x !== order)];
   if (a.includes("--decorate")) a = ["--decorate=full", ...a.filter((x) => x !== "--decorate")];
   if (a.includes("--reverse")) a = a.filter((x) => x !== "--graph");
   if (a.includes("--color")) a = a.filter((x) => x !== "--color");
   return ["log", format, ...a, "--use-mailmap", "--no-prefix", ...(Array.isArray(revs) ? revs : revs ? [revs] : []), "--", ...files];
+}
+
+/** What the log's format asks git for the trailers magit-log-trailer-labels labels, or nothing without it. */
+function trailerLabelsFormat(): string {
+  const labels = e8.variable("magit-log-trailer-labels");
+  if (!Array.isArray(labels) || labels.length === 0) return "";
+  const options = labels.length > 1 && typeof labels[1] === "string" ? labels[1] : "";
+  return `%(trailers:${options !== "" ? `${options},` : ""}unfold=true,separator=%x1e,key_value_separator=%x1f)`;
+}
+
+/** The label magit-log-trailer-labels's function makes of a commit's TRAILERS, or undefined. */
+function trailerLabel(trailers: string | undefined): string | e8.PropertizedString | undefined {
+  const labels = e8.variable("magit-log-trailer-labels");
+  if (!trailers || !Array.isArray(labels) || labels.length === 0) return undefined;
+  const alist = trailers.split("\x1e").map((t) => t.split("\x1f"));
+  const label = e8.funcall(labels[0] as string, alist);
+  return typeof label === "string" || (label && typeof label === "object") ? (label as e8.PropertizedString) : undefined;
 }
 
 /** Runs git log for REVS with ARGS and FILES and inserts it washed, cancelling the section if empty, as magit--insert-log. */
@@ -555,14 +630,21 @@ function headerLineArguments(revs: string[], args: string[], files: string[]): s
 }
 
 /** Shows the log of REVS in the log buffer, as magit-log-setup-buffer; then point on FOCUS's commit or the one it was on. */
-export function magitLogSetupBuffer(revs: string[], args: string[], files: string[], focus?: string): string {
+export function magitLogSetupBuffer(revs: string[], args: string[], files: string[], focus?: string, locked = false): string {
   const previous = currentSection();
-  const name = magitBufferName("magit-log-mode");
-  magitSetupBuffer(name, magitLogMode, "log", magitLogRefreshBuffer, true, {
-    "magit-buffer-revisions": revs,
-    "magit-buffer-log-args": args,
-    "magit-buffer-log-files": files,
-  });
+  const name = magitSetupBuffer(
+    magitBufferName("magit-log-mode"),
+    magitLogMode,
+    "log",
+    magitLogRefreshBuffer,
+    true,
+    {
+      "magit-buffer-revisions": revs,
+      "magit-buffer-log-args": args,
+      "magit-buffer-log-files": files,
+    },
+    locked,
+  );
   e8.withCurrentBuffer(name, () => {
     if (focus) magitLogGotoCommitSection(focus);
     else if (previous && (previous.type === "commit" || previous.type === "branch") && typeof previous.value === "string") magitLogGotoCommitSection(previous.value);
@@ -597,13 +679,30 @@ export function magitLogGotoCommitSection(rev: string): boolean {
   return s !== undefined;
 }
 
+/**
+ * The minibuffer's keymap while reading a log's revisions, as
+ * magit-log-read-revs-map: SPC inserts itself, as revisions are separated
+ * by commas, spaces and dots; and Emacs's completion keys that E8's
+ * minibuffer map lacks.
+ */
+const magitLogReadRevsMap = e8.defineKeymap("magit-log-read-revs-map", "minibuffer-local-map");
+for (const [key, command] of [
+  ["SPC", "self-insert-command"],
+  ["<backtab>", "minibuffer-complete"],
+  ["<next>", "next-history-element"],
+  ["<prior>", "previous-history-element"],
+] as const)
+  e8.defineKey(magitLogReadRevsMap, key, command as e8.CommandName);
+
 /** Reads revisions for a log, as magit-log-read-revs. */
 function magitLogReadRevs(useCurrent = false): string[] {
   if (useCurrent) {
     const b = magitGetCurrentBranch();
     if (b) return [b];
   }
-  const reply = magitCompletingRead("Log rev,s", magitListRefnames(undefined, true), { requireMatch: "any", history: "magit-revision-history", def: magitBranchOrCommitAtPoint() ?? (!useCurrent ? magitGetPreviousBranch() : undefined) });
+  const reply = magitWithMinibufferMap("magit-log-read-revs-map", () =>
+    magitCompletingRead("Log rev,s", magitListRefnames(undefined, true), { requireMatch: "any", history: "magit-revision-history", def: magitBranchOrCommitAtPoint() ?? (!useCurrent ? magitGetPreviousBranch() : undefined) }),
+  );
   return (reply ?? "").split(/[, ]/).filter((r) => r !== "");
 }
 
@@ -666,6 +765,7 @@ e8.defineCommand({
     magitLogSetupBuffer(["HEAD", `--tags=${pattern}`], args, files);
   },
 });
+e8.defineVariable({ name: "magit-log-buffer-file-locked", doc: "Whether magit-log-buffer-file-quick uses a dedicated buffer.", value: true });
 e8.defineCommand({
   name: "magit-log-buffer-file",
   doc: "Show log for the blob or file visited in the current buffer; with a prefix argument, follow renames; with a region, the lines it touches.",
@@ -683,7 +783,7 @@ e8.defineCommand({
       files = [];
     }
     const refname = e8.variable("magit-buffer-refname");
-    magitLogSetupBuffer([typeof refname === "string" ? refname : (magitGetCurrentBranch() ?? "HEAD")], args, files);
+    magitLogSetupBuffer([typeof refname === "string" ? refname : (magitGetCurrentBranch() ?? "HEAD")], args, files, undefined, truthy(e8.variable("magit-log-buffer-file-locked")));
   },
 });
 e8.defineCommand({
@@ -692,14 +792,32 @@ e8.defineCommand({
   run: () => {
     const file = magitFileRelativeName();
     if (!file) e8.userError("Buffer isn't visiting a file");
-    const fn = e8.fboundp("which-function") ? (e8.funcall("which-function") as string | undefined) : undefined;
+    const fn = e8.funcall(String(e8.variable("magit-log-trace-definition-function") ?? "magit-which-function")) as string | undefined | null;
     if (!fn) e8.userError("No function at point found");
     const refname = e8.variable("magit-buffer-refname");
     const commit = typeof refname === "string" ? refname : (magitGetCurrentBranch() ?? "HEAD");
     const [args] = magitLogArguments();
-    magitLogSetupBuffer([commit], [`-L:${fn!.replace(/:/g, "\\:")}:${file}`, ...args.filter((a) => !a.startsWith("-L"))], []);
+    // Git does not tell "-" from "_" in Lisp, so a name must end at a space or the line's end there.
+    const end = e8.derivedModeP("lisp-mode", "emacs-lisp-mode") ? "\\( \\|$\\)" : "";
+    magitLogSetupBuffer([commit], [`-L:${regexpQuote(fn!).replace(/:/g, "\\:")}${end}:${file}`, ...args.filter((a) => !a.startsWith("-L"))], [], undefined, truthy(e8.variable("magit-log-buffer-file-locked")));
   },
 });
+/** Deletes the shelved BRANCH, a ref magit-branch-shelve made, as magit-delete-shelved-branch. */
+export function magitDeleteShelvedBranch(branch: string): void {
+  magitRunGit("update-ref", "-d", `refs/shelved/${branch}`);
+}
+e8.defineCommand({
+  name: "magit-delete-shelved-branch",
+  doc: "Delete the shelved BRANCH.\nDelete a ref created by magit-branch-shelve.",
+  run: () => magitDeleteShelvedBranch(magitReadShelvedBranch("Log shelved branch")),
+});
+
+/** Shows the log of the definition the line of point in a diff shows, as magit-diff-trace-definition. */
+export function magitDiffTraceDefinition(): void {
+  const [buf, pos] = magitDiffVisitFileNoselect();
+  magitWithTempPosition(buf, pos, () => e8.callInteractively("magit-log-trace-definition" as e8.CommandName));
+}
+e8.defineCommand({ name: "magit-diff-trace-definition", doc: "Show log for the definition at point in a diff.", run: () => magitDiffTraceDefinition() });
 e8.defineCommand({
   name: "magit-log-merged",
   doc: "Show log for the merge of COMMIT into BRANCH: the range M^1..M of the merge M that brought it in. Needs git-when-merged.",
@@ -843,8 +961,21 @@ function nextReference(previous: boolean): void {
   if (previous) while (p > e8.pointMin() && isRef(p - 1)) p--;
   e8.gotoChar(p);
 }
-e8.defineCommand({ name: "magit-next-reference", doc: "Move to the next Git reference appearing in the current buffer.", run: () => nextReference(false) });
-e8.defineCommand({ name: "magit-previous-reference", doc: "Move to the previous Git reference appearing in the current buffer.", run: () => nextReference(true) });
+/** The keys that repeat moving between references, as magit-reference-navigation-repeat-map, when repeat-mode is on. */
+const magitReferenceNavigationRepeatMap = e8.defineKeymap("magit-reference-navigation-repeat-map", null);
+/** Moves to the next or previous reference, then with repeat-mode lets the repeat map's keys move on, as :repeat t makes the commands do. */
+function navigateReferences(previous: boolean): void {
+  nextReference(previous);
+  if (truthy(e8.variable("repeat-mode"))) e8.setTransientMap(magitReferenceNavigationRepeatMap);
+}
+e8.defineCommand({ name: "magit-next-reference", doc: "Move to the next Git reference appearing in the current buffer.\n\nMove to the next location that uses a face appearing in magit-reference-movement-faces.  If repeat-mode is enabled, this command and its counterpart can be repeated using p and n.", run: () => navigateReferences(false) });
+e8.defineCommand({ name: "magit-previous-reference", doc: "Move to the previous Git reference appearing in the current buffer.\n\nMove to the previous location that uses a face appearing in magit-reference-movement-faces.  If repeat-mode is enabled, this command and its counterpart can be repeated using p and n.", run: () => navigateReferences(true) });
+for (const [key, command] of [
+  ["p", "magit-previous-reference"],
+  ["n", "magit-next-reference"],
+  ["r", "magit-next-reference"],
+] as const)
+  e8.defineKey(magitReferenceNavigationRepeatMap, key, command as e8.CommandName);
 
 // The reflog buffer.
 
@@ -935,7 +1066,7 @@ for (const [key, command] of [
 
 // The cherry buffer.
 
-export const magitCherryMode = e8.defineMajorMode({ name: "magit-cherry-mode", modeName: "Magit Cherry", parent: "magit-mode", doc: "Mode for looking at commits not merged upstream." });
+export const magitCherryMode = e8.defineMajorMode({ name: "magit-cherry-mode", modeName: "Magit Cherry", parent: magitMode, doc: "Mode for looking at commits not merged upstream." });
 
 /** Shows the commits of HEAD not in UPSTREAM, as magit-cherry-setup-buffer: the sections of magit-cherry-sections-hook. */
 export function magitCherrySetupBuffer(head: string, upstream: string): string {
@@ -987,6 +1118,10 @@ e8.addHook("magit-section-movement-hook", (section: Section | undefined) => {
 });
 
 for (const [key, command] of [
+  ["C-c C-b", "magit-go-backward"],
+  ["C-c C-f", "magit-go-forward"],
+  ["C-c C-n", "magit-log-move-to-parent"],
+  ["j", "magit-log-move-to-revision"],
   ["=", "magit-log-toggle-commit-limit"],
   ["+", "magit-log-double-commit-limit"],
   ["-", "magit-log-half-commit-limit"],
@@ -994,6 +1129,12 @@ for (const [key, command] of [
 ] as const)
   e8.defineKey("magit-log-mode-map", key, command as e8.CommandName);
 e8.defineKey("magit-reflog-mode-map", "L", "magit-margin-settings" as e8.CommandName);
+e8.defineKey("magit-cherry-mode-map", "q", "magit-log-bury-buffer" as e8.CommandName);
+// Keys of the log the reflog and selecting a commit have no use for, as Magit undefines them.
+e8.defineKey("magit-reflog-mode-map", "C-c C-n", "undefined" as e8.CommandName);
+e8.defineKey("magit-log-select-mode-map", "C-c C-b", "undefined" as e8.CommandName);
+e8.defineKey("magit-log-select-mode-map", "C-c C-f", "undefined" as e8.CommandName);
+e8.defineKey("magit-cherry-mode-map", "L", "magit-margin-settings" as e8.CommandName);
 
 void magitBufferInfo;
 void magitRefreshBuffer;

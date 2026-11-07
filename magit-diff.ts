@@ -45,7 +45,7 @@ import {
   type Section,
 } from "magit-section";
 import { forwardLine, truthy } from "subr";
-import { transientArgs } from "transient";
+import { transientArgs, transientDefinePrefix } from "transient";
 import { magitCompletingRead } from "magit-base";
 import {
   magitAnythingModifiedP,
@@ -54,6 +54,7 @@ import {
   magitCommitAtPoint,
   magitCommitP,
   magitCommitParents,
+  magitFileAtPoint,
   magitFileRelativeName,
   magitFileStatus,
   magitFormatRefLabels,
@@ -83,7 +84,7 @@ import {
   magitToplevelOrError,
   type GitArg,
 } from "magit-git";
-import { magitBufferName, magitDiffMode, magitRefreshBuffer, magitRevisionMode, magitSetupBuffer, magitStashMode } from "magit-mode";
+import { magitBufferName, magitDiffMode, magitGetModeBuffer, magitRefreshBuffer, magitRevisionMode, magitSetupBuffer, magitStashMode, magitXrefStacks } from "magit-mode";
 
 // Faces.
 
@@ -143,6 +144,57 @@ e8.defineVariable({
 });
 e8.defineVariable({ name: "magit-diff-visit-prefer-worktree", doc: "Whether magit-diff-visit-file prefers the work tree's file over a blob.", value: false });
 e8.defineVariable({ name: "magit-diff-default-context", doc: "How many lines of context -U gives by default; nil for git's.", value: null });
+e8.defineVariable({
+  name: "magit-diff-adjust-tab-width",
+  doc: "Whether to adjust the width of tabs in diffs.\n\nDetermining the correct width can be expensive if it requires opening large and/or many files, so the widths are cached in the variable magit-diff--tab-width-cache.  Set that to nil to invalidate the cache.\n\nnil     Never adjust tab width.  Use tab-width's value from the Magit buffer itself instead.\n\nt       If the corresponding file-visiting buffer exits, then use tab-width's value from that buffer.  Doing this is cheap, so this value is used even if a corresponding cache entry exists.\n\nalways  If there is no such buffer, then temporarily visit the file to determine the value.\n\nNUMBER  Like always, but don't visit files larger than NUMBER bytes.",
+  value: null,
+});
+e8.defineVariable({ name: "magit-diff--tab-width-cache", doc: "The tab widths of files, as magit-diff-adjust-tab-width finds them: an alist of (FILE . WIDTH), WIDTH nil for a file too large to visit.", value: null });
+e8.defineVariable({
+  name: "magit-diff-highlight-indentation",
+  doc: "Highlight the \"wrong\" indentation style.\nUsed only when magit-diff-paint-whitespace is non-nil.\n\nThe value is an alist of the form ((REGEXP . INDENT)...).  The path to the current repository is matched against each element in reverse order.  Therefore if a REGEXP matches, then earlier elements are not tried.\n\nIf the used INDENT is tabs, highlight indentation with tabs.  If INDENT is an integer, highlight indentation with at least that many spaces.  Otherwise, highlight neither.",
+  value: null,
+});
+e8.defineVariable({
+  name: "magit-diff-visit-previous-blob",
+  doc: "Whether magit-diff-visit-file may visit the previous blob.\n\nWhen this is t (the default) and point is on a removed line, then magit-diff-visit-file visits the blob from the old/left commit, which still has that line, instead of going to the new/right blob, which removes that line.\n\nSetting this to nil, causes magit-diff-visit-file to always go to the new/right blob, even when point is on a removed line.  This is very strongly discouraged.  Instead place the cursor anywhere else within the hunk but on a removed line, if you want to visit the new side.  That way you don't lose the ability to visit the old side.",
+  value: true,
+});
+e8.defineVariable({
+  name: "magit-format-file-function",
+  doc: "Function used to format lines representing a file.\n\nThis function is used for file headings in diffs, in diffstats and for lists of files (such as the untracked files).  Depending on the caller, it receives either three or five arguments; the signature has to be (kind file face &optional status orig).  KIND is one of diff, module, stat and list.",
+  value: "magit-format-file-default",
+});
+e8.defineVariable({
+  name: "magit-revision-fill-summary-line",
+  doc: "Whether to fill excessively long summary lines.\n\nIf this is an integer, then the summary line is filled if it is longer than either the limit specified here or window-width.\n\nYou may want to only set this locally in \".dir-locals-2.el\" for repositories known to contain bad commit messages.\n\nThe body of the message is left alone because (a) most people who write excessively long summary lines usually don't add a body and (b) even people who have the decency to wrap their lines may have a good reason to include a long line in the body sometimes.",
+  value: null,
+});
+e8.defineVariable({
+  name: "magit-revision-filter-files-on-follow",
+  doc: "Whether to honor file filter if log arguments include --follow.\n\nWhen a commit is displayed from a log buffer, the resulting revision buffer usually shares the log's file arguments, restricting the diff to those files.  However, there's a complication when the log arguments include --follow: if the log follows a file across a rename event, keeping the file restriction would mean showing an empty diff in revision buffers for commits before the rename event.\n\nWhen this option is nil, the revision buffer ignores the log's filter if the log arguments include --follow.  If non-nil, the log's file filter is always honored.",
+  value: false,
+});
+e8.defineVariable({
+  name: "magit-revision-wash-message-hook",
+  doc: "Functions used to highlight parts of a commit message.\n\nThese functions are called in order, in a buffer narrowed to the commit message.  They should set text properties as they see fit, usually just font-lock-face.  Before each function is called, point is at the beginning of the narrowed region of the buffer.\n\nSee also the related magit-log-wash-summary-hook.  You likely want to use the same functions for both hooks.",
+  value: ["magit-highlight-squash-markers", "magit-highlight-bracket-keywords"],
+});
+e8.defineVariable({
+  name: "magit-diff-expansion-threshold",
+  doc: "After how many seconds not to expand anymore diffs.\n\nExcept in status buffers, diffs usually start out fully expanded.  Because that can take a long time, all diffs that haven't been fontified during a refresh before the threshold defined here are instead displayed with their bodies collapsed.\n\nNote that this can cause sections that were previously expanded to be collapsed.  So you should not pick a very low value here.\n\nThe hook function magit-diff-expansion-threshold has to be a member of magit-section-set-visibility-hook for this option to have any effect.",
+  value: 60,
+});
+e8.defineVariable({ name: "magit--refresh-start-time", doc: "When the refresh of the current Magit buffer started, in seconds since the epoch, as magit-refresh-buffer binds it; nil outside a refresh.", value: null });
+
+/** Keeps new file sections collapsed if washing takes too long, as magit-diff-expansion-threshold. */
+export function magitDiffExpansionThreshold(section: Section): string | undefined {
+  const start = e8.variable("magit--refresh-start-time");
+  if (section?.type !== "file" || typeof start !== "number") return undefined;
+  return Date.now() / 1000 - start > Number(e8.variable("magit-diff-expansion-threshold") ?? 60) ? "hide" : undefined;
+}
+e8.defun("magit-diff-expansion-threshold", magitDiffExpansionThreshold);
+e8.addHook("magit-section-set-visibility-hook", magitDiffExpansionThreshold);
 e8.defineHook("magit-diff-wash-diffs-hook", "Hook run before a diff is washed.");
 e8.defineVariable({ name: "magit-diff-sections-hook", doc: "Functions inserting the sections of a diff buffer.", value: ["magit-insert-diff", "magit-insert-xref-buttons"] });
 e8.defineVariable({
@@ -161,6 +213,9 @@ const defaultArguments: { [mode: string]: string[] } = {
   "magit-log-mode": ["--no-ext-diff"],
 };
 
+/** Makes ARGS the diff arguments of new buffers of MODE, as the refresh menu's "set defaults" does. */
+export const magitDiffSetDefaultArguments = (mode: string, args: string[]): void => void (defaultArguments[mode] = [...args]);
+
 /**
  * The diff arguments and files for a buffer of MODE, as magit-diff-arguments:
  * the menu's when run from it, the current buffer's when it is of MODE, else
@@ -169,10 +224,68 @@ const defaultArguments: { [mode: string]: string[] } = {
 export function magitDiffArguments(mode = "magit-diff-mode"): [string[], string[]] {
   const current = e8.variable("transient-current-command");
   if (current === "magit-diff" || current === "magit-diff-refresh") return splitFiles(transientArgs(String(current)));
+  return magitDiffGetValue(mode, "direct");
+}
+
+/**
+ * Which of magit-*-use-buffer-arguments applies for USE: prefix, status
+ * or direct; or USE itself when it is always, selected, current or never.
+ */
+export function magitUseBufferArguments(use: string): string {
+  const v = (name: string): string => String(e8.variable(name) ?? "selected");
+  if (use === "prefix") return v("magit-prefix-use-buffer-arguments");
+  if (use === "status") return v("magit-status-use-buffer-arguments");
+  if (use === "direct") return v("magit-direct-use-buffer-arguments");
+  return use;
+}
+
+/**
+ * The buffer of MODE of the repository whose arguments USE allows, as
+ * magit-get-mode-buffer finds it: any for always, only one shown in the
+ * selected frame for selected.
+ */
+export function magitUseBufferArgumentsBuffer(mode: string, use: string): string | undefined {
+  if (use !== "always" && use !== "selected") return undefined;
+  const buffer = magitGetModeBuffer(mode);
+  if (!buffer) return undefined;
+  if (use === "selected" && !e8.windowList().some((w) => e8.windowBuffer(w) === buffer)) return undefined;
+  return buffer;
+}
+
+/** The diff arguments and files of the current buffer when it is of MODE, else MODE's defaults: magitDiffArguments outside a menu. */
+export function magitDiffBufferArguments(mode = "magit-diff-mode"): [string[], string[]] {
   if (String(e8.variable("major-mode")) === mode && Array.isArray(e8.variable("magit-buffer-diff-args"))) {
     return [e8.variable("magit-buffer-diff-args") as string[], (e8.variable("magit-buffer-diff-files") as string[] | null) ?? []];
   }
   return [defaultArguments[mode] ?? ["--no-ext-diff"], []];
+}
+
+/**
+ * The diff arguments and files for a buffer of MODE, as magit-diff--get-value:
+ * the current buffer's when it is of MODE, or another buffer of MODE's, as
+ * USE-BUFFER-ARGS allows (see magitUseBufferArguments), else MODE's defaults.
+ */
+export function magitDiffGetValue(mode: string, useBufferArgs = "direct"): [string[], string[]] {
+  const use = magitUseBufferArguments(useBufferArgs);
+  if (["always", "selected", "current"].includes(use) && String(e8.variable("major-mode")) === mode && Array.isArray(e8.variable("magit-buffer-diff-args"))) {
+    return [e8.variable("magit-buffer-diff-args") as string[], (e8.variable("magit-buffer-diff-files") as string[] | null) ?? []];
+  }
+  const buffer = magitUseBufferArgumentsBuffer(mode, use);
+  const args = buffer && e8.bufferLocalValue("magit-buffer-diff-args", buffer);
+  if (buffer && Array.isArray(args)) return [args as string[], (e8.bufferLocalValue("magit-buffer-diff-files", buffer) as string[] | null) ?? []];
+  return [defaultArguments[mode] ?? ["--no-ext-diff"], []];
+}
+
+/**
+ * The value the magit-diff menu starts with, as its transient-init-value:
+ * the arguments as magit-prefix-use-buffer-arguments allows, limited to
+ * the file the buffer visits, if any, unless from magit-dispatch.
+ */
+export function magitDiffPrefixValue(): string[] {
+  let [args, files] = magitDiffGetValue("magit-diff-mode", "prefix");
+  const file = e8.variable("transient-current-command") !== "magit-dispatch" ? magitFileRelativeName() : undefined;
+  if (file) files = [file];
+  return files.length > 0 ? [`-- ${files.join(",")}`, ...args] : args;
 }
 const splitFiles = (args: string[]): [string[], string[]] => {
   const files = args.filter((a) => a.startsWith("-- ")).flatMap((a) => a.slice(3).split(","));
@@ -229,9 +342,20 @@ interface Wash {
   mode: string;
 }
 
-/** Formats a file as a diff heading or diffstat line names it, as magit-format-file-default. */
-export function magitFormatFile(file: string, face: string, status?: string, orig?: string): e8.PropertizedString {
-  return fl(`${status !== undefined ? status.padEnd(11) : ""}${orig ? `${orig} -> ${file}` : file}`, face);
+/** Shows only the Git status and the filename, as magit-format-file-default. */
+export function magitFormatFileDefault(_kind: string, file: string, face: string, status?: string | null, orig?: string | null): e8.PropertizedString {
+  return fl(`${typeof status === "string" ? status.padEnd(11) : ""}${orig ? `${orig} -> ${file}` : file}`, face);
+}
+e8.defun("magit-format-file-default", magitFormatFileDefault);
+
+/**
+ * Formats FILE as a line of KIND shows it, diff, module, stat or list,
+ * with magit-format-file-function, as magit-format-file.
+ */
+export function magitFormatFile(kind: "diff" | "module" | "stat" | "list", file: string, face: string, status?: string, orig?: string): e8.PropertizedString {
+  const fn = e8.variable("magit-format-file-function");
+  if (fn === null || fn === "magit-format-file-default") return magitFormatFileDefault(kind, file, face, status, orig);
+  return e8.funcall(fn as string, kind, file, face, status ?? null, orig ?? null) as e8.PropertizedString;
 }
 
 /**
@@ -289,7 +413,7 @@ function washDiffstat(w: Wash): void {
       }
       const value = files.shift() ?? file;
       insertSection("file", { file: value, kind: "diffstat" } as FileValue, false, () => {
-        e8.insert(magitFormatFile(file, "magit-filename"));
+        e8.insert(magitFormatFile("stat", file, "magit-filename"));
         e8.insert(`${sep}${cnt} `);
         if (add) e8.insert(fl(add, "magit-diffstat-added"));
         if (del) e8.insert(fl(del, "magit-diffstat-removed"));
@@ -400,7 +524,7 @@ function insertFileSection(w: Wash, file: string, orig: string | undefined, stat
   const value: FileValue = { file, kind: w.kind, diff, ident: file };
   insertSection("file", value, status === "deleted" || w.mode === "magit-status-mode", () => {
     const suffix = binary && longStatus ? ` (${longStatus}, binary)` : binary || longStatus ? ` (${binary ? "binary" : longStatus})` : undefined;
-    insertHeading(magitFormatFile(file, "magit-diff-file-heading", status, orig !== file ? orig : undefined), ...(suffix ? [suffix] : []));
+    insertHeading(magitFormatFile("diff", file, "magit-diff-file-heading", status, orig !== file ? orig : undefined), ...(suffix ? [suffix] : []));
     if (modes) insertSection("hunk", { file, kind: w.kind, diff, ident: "chmod" } as FileValue, false, () => insertHeading(fl(modes, "default")));
     if (rename) insertSection("hunk", { file, kind: w.kind, diff, ident: "rename" } as FileValue, false, () => insertHeading(fl(rename, "default")));
     while (w.i < w.lines.length && washHunk(w, value)) {
@@ -460,7 +584,7 @@ function washSubmodule(w: Wash): void {
     while (w.i < w.lines.length && /^ {2}([<>]) (.*)$/.test(w.lines[w.i])) w.i++;
     const range = rewind ? rangeRaw.replace(/([^.])\.\.([^.])/, "$1...$2") : rangeRaw;
     insertSection("module", module, true, () => {
-      insertHeading(magitFormatFile(module, "magit-diff-file-heading", "modified"), ` (${rewind ? "rewind" : range.includes("...") ? "non-ff" : "new commits"}${content})`);
+      insertHeading(magitFormatFile("module", module, "magit-diff-file-heading", "modified"), ` (${rewind ? "rewind" : range.includes("...") ? "non-ff" : "new commits"}${content})`);
       const dir = e8.fileNameAsDirectory(e8.expandFileName(module, magitToplevel()));
       for (const l of magitGitRun(["log", "--oneline", "--left-right", range], { dir }).output.split("\n").filter((x) => x !== "")) {
         const lm = /^([<>]?)([0-9a-f]+) (.*)$/.exec(l);
@@ -471,9 +595,9 @@ function washSubmodule(w: Wash): void {
   } else if ((m = /^Submodule ([^ ]+) ([^ ]+) \(([^)]+)\)$/.exec(line)) && m[1] === module) {
     const msg = m[3];
     w.i++;
-    insertSection("module", module, false, () => insertHeading(magitFormatFile(module, "magit-diff-file-heading", "submodule"), ` (${msg})`));
+    insertSection("module", module, false, () => insertHeading(magitFormatFile("module", module, "magit-diff-file-heading", "submodule"), ` (${msg})`));
   } else {
-    insertSection("module", module, false, () => insertHeading(magitFormatFile(module, "magit-diff-file-heading", "modified"), ` (${modified ? "modified" : ""}${modified && untracked ? " and " : ""}${untracked ? "untracked" : ""} content)`));
+    insertSection("module", module, false, () => insertHeading(magitFormatFile("module", module, "magit-diff-file-heading", "modified"), ` (${modified ? "modified" : ""}${modified && untracked ? " and " : ""}${untracked ? "untracked" : ""} content)`));
   }
 }
 
@@ -501,9 +625,13 @@ function paintHunk(section: Section, highlight: boolean): void {
   const on = highlight && truthy(e8.variable("magit-diff-highlight-hunk-body"));
   const merging = e8.bufferSubstringNoProperties(section.start, Math.min(section.start + 3, section.end)) === "@@@";
   let stage: string | undefined;
+  const parent = section.parent?.value as FileValue | string | undefined;
+  const tabWidth = magitDiffTabWidth(typeof parent === "string" ? parent : (parent?.file ?? ""));
+  // The diff type, asked for only when magit-diff-paint-whitespace needs it.
+  let diffType: string | null | undefined = null;
+  const type = (): string | undefined => (diffType === null ? (diffType = magitDiffType(section)) : diffType);
   // From the line after the heading's first, as Magit's painter goes forward a line from the start.
   let p = Math.min(e8.lineEnd(e8.lineOf(section.start)) + 1, section.end);
-  const trailing = truthy(e8.variable("magit-diff-paint-whitespace")) && truthy(e8.variable("magit-diff-highlight-trailing"));
   for (const o of e8.overlaysIn(section.content, section.end)) if (e8.overlayGet(o, "magit-diff-whitespace") === true) e8.deleteOverlay(o);
   while (p < section.end) {
     const eol = e8.lineEnd(e8.lineOf(p));
@@ -514,10 +642,18 @@ function paintHunk(section: Section, highlight: boolean): void {
       stage = ({ "<": on ? "magit-diff-our-highlight" : "magit-diff-our", "|": on ? "magit-diff-base-highlight" : "magit-diff-base", "=": on ? "magit-diff-their-highlight" : "magit-diff-their" } as { [k: string]: string })[conflict[1]];
       face = on ? "magit-diff-conflict-heading-highlight" : "magit-diff-conflict-heading";
     } else if ((merging ? /^(\+| \+)/ : /^\+/).test(line)) {
+      paintTab(p, line, merging, tabWidth);
+      paintWhitespace(p, line, merging, "added", type);
       face = stage ?? (on ? "magit-diff-added-highlight" : "magit-diff-added");
-      if (trailing) paintTrailing(p, line, merging);
-    } else if ((merging ? /^(-| -)/ : /^-/).test(line)) face = on ? "magit-diff-removed-highlight" : "magit-diff-removed";
-    else face = on ? "magit-diff-context-highlight" : "magit-diff-context";
+    } else if ((merging ? /^(-| -)/ : /^-/).test(line)) {
+      paintTab(p, line, merging, tabWidth);
+      paintWhitespace(p, line, merging, "removed", type);
+      face = on ? "magit-diff-removed-highlight" : "magit-diff-removed";
+    } else {
+      paintTab(p, line, merging, tabWidth);
+      paintWhitespace(p, line, merging, "context", type);
+      face = on ? "magit-diff-context-highlight" : "magit-diff-context";
+    }
     e8.putTextProperty(p, Math.min(eol + 1, section.end), "font-lock-face", face);
     if (truthy(e8.variable("magit-diff-hide-trailing-cr-characters")) && line.endsWith("\r")) e8.putTextProperty(eol - 1, eol, "invisible", true);
     p = eol + 1;
@@ -526,12 +662,81 @@ function paintHunk(section: Section, highlight: boolean): void {
   if (refine === "all" || (refine === true && on)) refineHunk(section);
 }
 
-/** Marks whitespace at the end of an added line, as magit-diff-paint-whitespace. */
-function paintTrailing(start: number, line: string, merging: boolean): void {
-  const m = (merging ? /^[-+ ]{2}.*?([ \t]+)$/ : /^[-+ ].*?([ \t]+)$/).exec(line);
-  if (!m) return;
-  const at = start + line.length - m[1].length;
-  e8.makeOverlay(at, start + line.length, { face: "magit-diff-whitespace-warning", priority: 2, evaporate: true, "magit-diff-whitespace": true });
+/** The width tabs in FILE's diff are drawn with, as magit-diff-tab-width: as magit-diff-adjust-tab-width says, from the buffer visiting FILE, the cache, or the file visited for it. */
+export function magitDiffTabWidth(file: string): number {
+  const own = Number(e8.variable("tab-width") ?? 8);
+  const adjust = e8.variable("magit-diff-adjust-tab-width");
+  if (!truthy(adjust)) return own;
+  const path = e8.expandFileName(file, magitToplevel() ?? String(e8.variable("default-directory")));
+  const cache = (Array.isArray(e8.variable("magit-diff--tab-width-cache")) ? (e8.variable("magit-diff--tab-width-cache") as [string, number | null][]) : []).filter((e) => e[0] !== path);
+  const remember = (width: number | null): void => e8.setDefault("magit-diff--tab-width-cache", [[path, width], ...cache] as e8.Value);
+  const visiting = e8.bufferList().find((b) => e8.withCurrentBuffer(b, () => e8.bufferFileName()) === path);
+  if (visiting) {
+    const width = Number(e8.bufferLocalValue("tab-width", visiting) ?? own);
+    remember(width);
+    return width;
+  }
+  const cached = (e8.variable("magit-diff--tab-width-cache") as [string, number | null][] | null)?.find?.((e) => Array.isArray(e) && e[0] === path);
+  if (cached) return cached[1] ?? own;
+  const size = e8.fileAttributes(path)?.size;
+  if (size !== undefined && (adjust === "always" || (typeof adjust === "number" && adjust >= size))) {
+    const buffer = e8.findFileNoselect(path);
+    const width = Number(e8.bufferLocalValue("tab-width", buffer) ?? own);
+    e8.call("kill-buffer", buffer);
+    remember(width);
+    return width;
+  }
+  // The file is too large: its size is not checked again.
+  remember(null);
+  return own;
+}
+
+/** Draws the tabs after a line's diff markers WIDTH wide, as magit-diff-paint-tab. */
+function paintTab(start: number, line: string, merging: boolean, width: number): void {
+  let i = merging ? 2 : 1;
+  while (line[i] === "\t") {
+    e8.putTextProperty(start + i, start + i + 1, "display", [e8.intern("space"), e8.intern(":width"), width] as e8.Value);
+    i++;
+  }
+}
+
+/** The indentation style magit-diff-highlight-indentation gives this repository, kept in the buffer, as magit-diff-paint-whitespace finds it. */
+function highlightIndentation(): e8.Value {
+  if (e8.isLocalVariable("magit-diff-highlight-indentation")) return e8.variable("magit-diff-highlight-indentation") ?? null;
+  const alist = e8.defaultValue("magit-diff-highlight-indentation");
+  const dir = String(e8.variable("default-directory") ?? "");
+  let indent: e8.Value = null;
+  if (Array.isArray(alist)) {
+    for (const entry of [...alist].reverse()) {
+      if (Array.isArray(entry) && typeof entry[0] === "string" && e8.stringMatch(entry[0], dir) !== undefined) {
+        indent = (entry.length === 2 ? entry[1] : entry.slice(1)) as e8.Value;
+        break;
+      }
+    }
+  }
+  e8.makeLocalVariable("magit-diff-highlight-indentation");
+  e8.setVariable("magit-diff-highlight-indentation", indent);
+  return indent;
+}
+
+/** Marks whitespace errors on a line of LINE-TYPE, as magit-diff-paint-whitespace: trailing whitespace, and the indentation magit-diff-highlight-indentation calls wrong. */
+function paintWhitespace(start: number, line: string, merging: boolean, lineType: "added" | "removed" | "context", diffType: () => string | undefined): void {
+  const paint = e8.variable("magit-diff-paint-whitespace");
+  if (!truthy(paint)) return;
+  const lines = e8.variable("magit-diff-paint-whitespace-lines");
+  if (lineType === "removed" && lines !== "all" && lines !== "both") return;
+  if (lineType === "context" && lines !== "all") return;
+  if ((paint === "uncommitted" || paint === "status") && !["staged", "unstaged"].includes(diffType() ?? "")) return;
+  const indent = highlightIndentation();
+  const prefix = merging ? 2 : 1;
+  const mark = (from: number, to: number): void => void e8.makeOverlay(start + from, start + to, { face: "magit-diff-whitespace-warning", priority: 2, evaporate: true, "magit-diff-whitespace": true });
+  if (truthy(e8.variable("magit-diff-highlight-trailing"))) {
+    const m = /[ \t]+$/.exec(line.slice(prefix));
+    if (m) mark(prefix + m.index, line.length);
+  }
+  const body = line.slice(prefix);
+  const m = indent === "tabs" ? /^( *\t[ \t]*)/.exec(body) : typeof indent === "number" ? new RegExp(`^([ \\t]* {${indent},}[ \\t]*)`).exec(body) : null;
+  if (m) mark(prefix, prefix + m[1].length);
 }
 
 magitSectionDefineType("hunk", { headingHighlightFace: "magit-diff-hunk-heading-highlight", headingSelectionFace: "magit-diff-hunk-heading-selection", paint: paintHunk, keymap: "magit-hunk-section-map" });
@@ -661,15 +866,23 @@ const statusDiffArgs = (): string[] => (Array.isArray(e8.variable("magit-buffer-
 // The diff buffer.
 
 /** Shows a diff in the diff buffer, as magit-diff-setup-buffer. */
-export function magitDiffSetupBuffer(range: string | undefined, typearg: string | undefined, args: string[], files: string[], type?: string): string {
+export function magitDiffSetupBuffer(range: string | undefined, typearg: string | undefined, args: string[], files: string[], type?: string, locked = false): string {
   const name = magitBufferName("magit-diff-mode");
-  return magitSetupBuffer(name, magitDiffMode, "diff", magitDiffRefreshBuffer, true, {
-    "magit-buffer-range": range ?? null,
-    "magit-buffer-typearg": typearg ?? null,
-    "magit-buffer-diff-type": type ?? null,
-    "magit-buffer-diff-args": args,
-    "magit-buffer-diff-files": files,
-  });
+  return magitSetupBuffer(
+    name,
+    magitDiffMode,
+    "diff",
+    magitDiffRefreshBuffer,
+    true,
+    {
+      "magit-buffer-range": range ?? null,
+      "magit-buffer-typearg": typearg ?? null,
+      "magit-buffer-diff-type": type ?? null,
+      "magit-buffer-diff-args": args,
+      "magit-buffer-diff-files": files,
+    },
+    locked,
+  );
 }
 
 /** What the diff buffer's header line says, as magit-diff-refresh-buffer sets it. */
@@ -722,7 +935,27 @@ function magitInsertDiff(): void {
   magitInsertGitDiff(["diff", range ?? undefined, "-p", "--no-prefix", args.includes("--stat") ? "--numstat" : undefined, typearg ?? undefined, args, "--", files], type === "staged" ? "staged" : type === "unstaged" ? "unstaged" : "commit");
 }
 inserters.set("magit-insert-diff", magitInsertDiff);
-inserters.set("magit-insert-xref-buttons", () => {});
+/** The keys of the history's buttons, as the help-back and help-forward buttons have. */
+for (const [map, command] of [
+  ["magit-xref-backward-button-map", "magit-go-backward"],
+  ["magit-xref-forward-button-map", "magit-go-forward"],
+] as const) {
+  e8.defineKeymap(map, null);
+  for (const key of ["RET", "<mouse-2>", "<mouse-1>"]) e8.defineKey(map, key, command as e8.CommandName);
+}
+/** Inserts buttons going back and forward in the buffer's history, as magit-insert-xref-buttons. */
+function magitInsertXrefButtons(): void {
+  const { back, forward } = magitXrefStacks();
+  if (truthy(e8.variable("magit-buffer-locked-p")) || (!back && !forward)) return;
+  const button = (label: string, map: string) =>
+    insertSection("button", label, false, () => e8.insert(e8.propertize(label, { button: true, keymap: map, "mouse-face": "magit-section-highlight", "help-echo": `mouse-2, RET: go ${map.includes("back") ? "back to previous" : "to next"} history entry` })));
+  if (back) button("[back]", "magit-xref-backward-button-map");
+  if (forward) {
+    if (back) e8.insert(" ");
+    button("[forward]", "magit-xref-forward-button-map");
+  }
+}
+inserters.set("magit-insert-xref-buttons", magitInsertXrefButtons);
 inserters.set("magit-insert-unstaged-changes", magitInsertUnstagedChanges);
 inserters.set("magit-insert-staged-changes", magitInsertStagedChanges);
 
@@ -876,32 +1109,100 @@ function magitInsertRevisionMessage(): void {
     undefined,
     false,
     () => {
-      const msg = magitGitRun(["-c", "log.showsignature=false", "log", "-1", "--no-patch", "--format=%B", rev, "--"]).output.replace(/\r\n/g, "\n");
-      if (msg.trim() === "") {
+      const msg = magitGitRun(["-c", "log.showsignature=false", "log", "-1", "--no-patch", "--format=%B", rev, "--"]).output;
+      if (msg.replace(/\r\n/g, "\n").trim() === "") {
         e8.insert("(no message)\n");
         return;
       }
-      const lines = msg.split("\n");
       const start = e8.point();
-      e8.insert(fl(`${lines[0]}\n`, "magit-diff-revision-summary"));
-      washMessageKeywords(start);
+      e8.insert(msg);
+      const end = magitRevisionWashMessage(start, e8.point());
+      e8.gotoChar(start);
+      magitAddFaceTextProperty(start, Math.min(e8.lineEnd(e8.lineOf(start)) + 1, end), "magit-diff-revision-summary", true);
+      e8.gotoChar(Math.min(e8.lineEnd(e8.lineOf(start)) + 1, end));
       insertHeading();
-      const bodyStart = e8.point();
-      e8.insert(lines.slice(1).join("\n"));
-      washMessageKeywords(bodyStart);
+      e8.gotoChar(end);
       washMessageHashes(start);
     },
     "magit-insert-revision-message",
   );
 }
 
-/** Highlights squash markers and bracketed keywords in a message, as magit-highlight-squash-markers and -bracket-keywords. */
-function washMessageKeywords(from: number): void {
-  const text = e8.bufferSubstringNoProperties(from, e8.point());
-  const squash = /^(squash!|fixup!|amend!)/.exec(text);
-  if (squash) e8.addFaceTextProperty(from, from + squash[0].length, "magit-keyword-squash");
-  for (const m of text.matchAll(/\[[^\][]*\]/g)) e8.putTextProperty(from + m.index!, from + m.index! + m[0].length, "font-lock-face", "magit-keyword");
+/**
+ * Washes the message from START to END, as magit-revision--wash-message:
+ * removes carriage returns before newlines, fills the summary line as
+ * magit-revision-fill-summary-line says, and runs
+ * magit-revision-wash-message-hook's functions narrowed to it, each with
+ * point at its start. Gives where the message ends now.
+ */
+export function magitRevisionWashMessage(start: number, end: number): number {
+  const after = e8.makeMarker(end, { advances: true });
+  e8.saveRestriction(() => {
+    e8.narrowToRegion(start, end);
+    e8.gotoChar(e8.pointMin());
+    while (e8.reSearchForward("\r\n", { noerror: true }) !== undefined) {
+      const at = e8.matchBeginning(0)!;
+      e8.deleteRegion(at, at + 1);
+    }
+    e8.gotoChar(e8.pointMin());
+    const fill = e8.variable("magit-revision-fill-summary-line");
+    if (typeof fill === "number") {
+      const window = e8.windowList().find((w) => e8.windowBuffer(w) === e8.bufferName());
+      const width = Math.min(fill, e8.windowSize(window)?.width ?? fill);
+      const mark = e8.mark();
+      e8.setMark(e8.lineEnd(e8.lineOf(e8.point())));
+      const readOnly = e8.bufferReadOnly();
+      e8.setReadOnly(false);
+      try {
+        e8.letBind({ "fill-column": width }, () => e8.call("fill-region"));
+      } finally {
+        e8.setReadOnly(readOnly);
+      }
+      e8.setMark(mark ?? null);
+      e8.deactivateMark();
+      e8.gotoChar(e8.pointMin());
+    }
+    const hook = e8.variable("magit-revision-wash-message-hook");
+    for (const fn of Array.isArray(hook) ? hook : hook ? [hook] : []) {
+      if (fn === true) continue;
+      e8.saveExcursion(() => {
+        e8.gotoChar(e8.pointMin());
+        e8.funcall(fn as string);
+      });
+    }
+  });
+  const pos = e8.markerPosition(after) ?? end;
+  e8.deleteMarker(after);
+  return pos;
 }
+
+/** Adds FACE to the font-lock-face of the text from BEG to END, before the faces there or with APPEND after them, as magit--add-face-text-property. */
+export function magitAddFaceTextProperty(beg: number, end: number, face: string, append = false): void {
+  while (beg < end) {
+    const pos = Math.min(e8.nextSinglePropertyChange(beg, "font-lock-face", end) ?? end, end);
+    const val = e8.getTextProperty(beg, "font-lock-face");
+    const list = val === undefined || val === null ? [] : Array.isArray(val) ? val : [val];
+    const faces = append ? [...list, face] : [face, ...list];
+    e8.putTextProperty(beg, pos, "font-lock-face", (faces.length === 1 ? faces[0] : faces) as e8.Value);
+    beg = pos;
+  }
+}
+
+/** Highlights "squash!" and similar markers, as magit-highlight-squash-markers. */
+export function magitHighlightSquashMarkers(): void {
+  const m = /^(squash!|fixup!|amend!)/.exec(e8.bufferSubstringNoProperties(e8.point(), Math.min(e8.point() + 7, e8.pointMax())));
+  if (m) magitAddFaceTextProperty(e8.point(), e8.point() + m[0].length, "magit-keyword-squash");
+}
+e8.defun("magit-highlight-squash-markers", magitHighlightSquashMarkers);
+
+/** Highlights text between brackets, as magit-highlight-bracket-keywords. */
+export function magitHighlightBracketKeywords(): void {
+  const from = e8.point();
+  const text = e8.bufferSubstringNoProperties(from, e8.pointMax());
+  for (const m of text.matchAll(/\[[^\][]*\]/g)) e8.putTextProperty(from + m.index!, from + m.index! + m[0].length, "font-lock-face", "magit-keyword");
+  e8.gotoChar(e8.pointMax());
+}
+e8.defun("magit-highlight-bracket-keywords", magitHighlightBracketKeywords);
 
 /** Makes the hashes in a message sections of their own, as magit-revision--wash-message-hashes. */
 function washMessageHashes(from: number): void {
@@ -930,13 +1231,19 @@ function magitInsertRevisionNotes(): void {
     const r = magitGitRun(["-c", `core.notesRef=${ref}`, "notes", "show", rev]);
     if (r.exit !== 0 || r.output.trim() === "") continue;
     insertSection("notes", ref, ref !== def, () => {
-      const lines = r.output.replace(/\n+$/, "").split("\n");
-      e8.insert(fl(lines[0], "magit-diff-revision-summary"));
+      const start = e8.point();
+      e8.insert(r.output.replace(/\n+$/, "\n"));
+      const end = e8.makeMarker(magitRevisionWashMessage(start, e8.point()), { advances: true });
+      e8.gotoChar(e8.lineEnd(e8.lineOf(start)));
       e8.insert(" (");
       e8.insert(fl(ref.startsWith("refs/notes/") ? ref.slice(11) : ref, "magit-refname"));
-      e8.insert(")\n");
+      e8.insert(")");
+      const headingEnd = Math.min(e8.lineEnd(e8.lineOf(start)) + 1, e8.pointMax());
+      magitAddFaceTextProperty(start, headingEnd, "magit-diff-revision-summary", true);
+      e8.gotoChar(headingEnd);
       insertHeading();
-      if (lines.length > 1) e8.insert(`${lines.slice(1).join("\n")}\n`);
+      e8.gotoChar(e8.markerPosition(end) ?? e8.pointMax());
+      e8.deleteMarker(end);
       e8.insert("\n");
     });
   }
@@ -1218,12 +1525,26 @@ export function magitFindFileNoselectDisplay(rev: string, file: string, other = 
   return name;
 }
 
+/**
+ * Whether point is on a removed line inside the body of a hunk, as
+ * magit-diff-on-removed-line-p; never if magit-diff-visit-previous-blob
+ * is nil.
+ */
+export function magitDiffOnRemovedLineP(section = currentSection()): boolean {
+  return (
+    truthy(e8.variable("magit-diff-visit-previous-blob")) &&
+    section?.type === "hunk" &&
+    !(section.value as FileValue | undefined)?.hunk?.combined &&
+    e8.charAfter(e8.lineStart(e8.lineOf(e8.point()))) === "-"
+  );
+}
+
 /** Which revision and file a diff section's lines come from, as magit-diff-visit--sides gives the one to visit. */
 function visitTarget(section: Section, forceWorktree: boolean): { file: string; rev?: string; goner: boolean } {
   const v = section.value as FileValue | string;
   const file = typeof v === "string" ? v : v.file;
   const type = magitDiffType(section);
-  const onRemoved = section.type === "hunk" && /^-/.test(e8.lineText(e8.lineOf(e8.point())) ?? "");
+  const onRemoved = magitDiffOnRemovedLineP(section);
   if (forceWorktree || type === "unstaged" || type === "untracked") return { file, goner: false };
   if (type === "staged") return { file, goner: false, rev: truthy(e8.variable("magit-diff-visit-prefer-worktree")) ? undefined : undefined };
   const rev = String(e8.variable("magit-buffer-revision") ?? "") || ((e8.variable("magit-buffer-range") as string | null) ?? "HEAD").replace(/^.*\.\.\.?/, "") || "HEAD";
@@ -1313,14 +1634,14 @@ export const magitDiffDwim = e8.defineCommand({
 });
 
 /** Reads a range or commit for a diff, as magit-diff-read-range-or-commit. */
-function readRangeOrCommit(prompt: string): string {
+export function magitDiffReadRangeOrCommit(prompt: string, secondaryDefault?: string): string {
   const commits = magitRegionValues(["commit", "branch"], true) as string[] | undefined;
   if (commits && commits.length > 1) {
     e8.deactivateMark();
     return `${commits[commits.length - 1]}..${commits[0]}`;
   }
   const target = magitDiffDwimTarget();
-  const def = Array.isArray(target) && target[0] === "commit" ? `${target[1]}^..${target[1]}` : typeof target === "string" && !["staged", "unstaged", "unmerged", "undefined"].includes(target) ? target : magitGetCurrentBranch();
+  const def = Array.isArray(target) && target[0] === "commit" ? `${target[1]}^..${target[1]}` : typeof target === "string" && !["staged", "unstaged", "unmerged", "undefined"].includes(target) ? target : (secondaryDefault ?? magitGetCurrentBranch());
   return magitReadRange(prompt, def);
 }
 
@@ -1329,7 +1650,7 @@ e8.defineCommand({
   doc: "Show differences between two commits: a range, or a revision against the working tree.",
   run: () => {
     const [args, files] = magitDiffArguments();
-    magitDiffSetupBuffer(readRangeOrCommit("Diff for range"), undefined, args, files, "committed");
+    magitDiffSetupBuffer(magitDiffReadRangeOrCommit("Diff for range"), undefined, args, files, "committed");
   },
 });
 e8.defineCommand({
@@ -1375,6 +1696,7 @@ e8.defineCommand({
     magitDiffSetupBuffer(undefined, "--no-index", [], [e8.expandFileName(a), e8.expandFileName(b)], "undefined");
   },
 });
+e8.defineVariable({ name: "magit-diff-buffer-file-locked", doc: "Whether magit-diff-buffer-file uses a dedicated buffer.", value: true });
 e8.defineCommand({
   name: "magit-diff-buffer-file",
   doc: "Show the diff for the file visited in the current buffer: HEAD against the working tree, limited to the file.",
@@ -1382,17 +1704,30 @@ e8.defineCommand({
     const file = magitFileRelativeName();
     if (!file) e8.userError("Buffer isn't visiting a file");
     const refname = e8.variable("magit-buffer-refname");
-    if (typeof refname === "string") return magitShowCommitRev(refname, magitDiffArguments("magit-revision-mode")[0], [file!]);
+    if (typeof refname === "string") return magitShowCommitRev(refname, magitShowCommitArguments()[0], [file!]);
     if (e8.bufferModified()) e8.call("save-buffer");
-    magitDiffSetupBuffer(magitGetCurrentBranch() ?? "HEAD", undefined, magitDiffArguments()[0], [file!], "unstaged");
+    magitDiffSetupBuffer(magitGetCurrentBranch() ?? "HEAD", undefined, magitDiffArguments()[0], [file!], "unstaged", truthy(e8.variable("magit-diff-buffer-file-locked")));
   },
 });
+
+/**
+ * The arguments and files a revision buffer shown from here gets, as
+ * magit-show-commit--arguments: from a log, its files, unless it follows
+ * renames and magit-revision-filter-files-on-follow is nil.
+ */
+export function magitShowCommitArguments(): [string[], string[]] {
+  const [args, files] = magitDiffArguments("magit-revision-mode");
+  if (!e8.derivedModeP("magit-log-mode")) return [args, files];
+  const logArgs = (e8.variable("magit-buffer-log-args") as string[] | null) ?? [];
+  const follow = truthy(e8.variable("magit-revision-filter-files-on-follow")) || !logArgs.includes("--follow");
+  return [args, follow ? ((e8.variable("magit-buffer-log-files") as string[] | null) ?? []) : []];
+}
 
 /** Shows REV in the revision buffer, as magit-show-commit. */
 export function magitShowCommitRev(rev: string, args?: string[], files?: string[]): void {
   if (!magitCommitP(rev)) e8.userError(`${rev} is not a commit`);
-  const [a, f] = magitDiffArguments("magit-revision-mode");
-  magitRevisionSetupBuffer(rev, args ?? a, files ?? (String(e8.variable("major-mode")) === "magit-log-mode" ? ((e8.variable("magit-buffer-log-files") as string[] | null) ?? []) : f));
+  const [a, f] = magitShowCommitArguments();
+  magitRevisionSetupBuffer(rev, args ?? a, files ?? f);
 }
 
 export const magitShowCommit = e8.defineCommand({
@@ -1566,6 +1901,110 @@ e8.defineCommand({
   },
 });
 
+/** The worktree's buffer of the file at point and the position the line of point in its diff shows, as magit-diff-visit-file--noselect. */
+export function magitDiffVisitFileNoselect(): [string, number] {
+  const s = currentSection();
+  const file = magitFileAtPoint(true);
+  if (!s || !file) e8.userError("No file at point");
+  const line = s.type === "hunk" ? magitDiffHunkLine(s) : 1;
+  const prefix = s.type === "hunk" && (s.value as FileValue).hunk?.combined ? 2 : 1;
+  const column = s.type === "hunk" && e8.point() >= s.content ? Math.max(0, e8.currentColumn() - prefix) : 0;
+  const buf = e8.findFileNoselect(file);
+  const pos = e8.withCurrentBuffer(buf, () => {
+    const l = Math.max(0, Math.min(line - 1, e8.lineCount() - 1));
+    return Math.min(e8.lineStart(l) + column, e8.lineEnd(l));
+  });
+  return [buf, pos];
+}
+
+/** BODY's value in BUF with point at POS, put back afterwards, as magit--with-temp-position. */
+export function magitWithTempPosition<T>(buf: string, pos: number, body: () => T): T {
+  return e8.withCurrentBuffer(buf, () =>
+    e8.saveExcursion(() => {
+      e8.gotoChar(pos);
+      return body();
+    }),
+  );
+}
+
+// Jumping to a revision buffer's sections, after magit-diff.el's magit-revision-jump.
+
+/** The first section of TYPE among the buffer's top sections. */
+const topSection = (type: string): Section | undefined => sections()?.root.children.find((c) => c.type === type);
+
+/** Moves to SECTION, showing it with EXPAND and putting it at the window's top, else says what is missing. */
+function jumpToSection(section: Section | undefined, expand: e8.Value, missing: string): void {
+  if (!section) return void e8.message(missing);
+  e8.gotoChar(section.start);
+  if (truthy(expand)) {
+    show(section);
+    e8.setWindowStart(e8.selectedWindow(), e8.lineBeginningPosition());
+  }
+}
+
+/** Defines a command jumping to the revision buffer's section of TYPE, as magit-define-section-jumper. */
+const revisionJumper = (name: string, heading: string, type: string) =>
+  e8.defineCommand({
+    name,
+    doc: `Jump to the section "${heading}".\nWith a prefix argument also expand it.`,
+    params: [{ name: "expand", kind: "prefix" }],
+    run: (expand: e8.Value) => jumpToSection(topSection(type), expand, `Section "${heading}" wasn't found`),
+  });
+const jumpToRevisionHeaders = revisionJumper("magit-jump-to-revision-headers", "Headings", "headers");
+const jumpToRevisionMessage = revisionJumper("magit-jump-to-revision-message", "Message", "commit-message");
+const jumpToRevisionNotes = revisionJumper("magit-jump-to-revision-notes", "Notes", "notes");
+const jumpToRevisionDiffstat = e8.defineCommand({
+  name: "magit-jump-to-revision-diffstat",
+  doc: "Jump to the diffstat, to the file at point in it from a file or hunk.\nWith a prefix argument also expand it.",
+  params: [{ name: "expand", kind: "prefix" }],
+  run: (expand: e8.Value) => {
+    const stat = topSection("diffstat");
+    const at = currentSection();
+    const file = at?.type === "file" ? (at.value as FileValue).file : at?.type === "hunk" ? (at.parent?.value as FileValue | undefined)?.file : undefined;
+    const target = file !== undefined ? stat?.children.find((c) => (c.value as FileValue).file === file) : stat;
+    jumpToSection(target ?? stat, expand, "No diff sections found");
+  },
+});
+const jumpToRevisionDiff = e8.defineCommand({
+  name: "magit-jump-to-revision-diff",
+  doc: "Jump to the diff.\nWith a prefix argument also expand it.",
+  params: [{ name: "expand", kind: "prefix" }],
+  run: (expand: e8.Value) => jumpToSection(topSection("file"), expand, "No diff sections found"),
+});
+
+const revisionJumpMenu = transientDefinePrefix("magit-revision-jump--menu", {
+  doc: "In a Magit-Revision buffer, jump to a section.",
+  groups: [
+    {
+      items: [
+        {
+          description: "Jump to",
+          items: [
+            ["h", "Headings", jumpToRevisionHeaders],
+            ["m", "Message", jumpToRevisionMessage],
+            ["n", "Notes", jumpToRevisionNotes],
+            ["s", "Diffstat", jumpToRevisionDiffstat, { inaptIfNot: () => topSection("diffstat") !== undefined }],
+            ["d", "Diff", jumpToRevisionDiff, { inaptIfNot: () => topSection("file") !== undefined }],
+          ],
+        },
+        { description: "Jump using", items: [["j", "Imenu", "imenu"]] },
+      ],
+    },
+  ],
+});
+
+/** Jumps to a section of the revision buffer from a menu, or with MENU false as magit-jump-to-diffstat-or-diff, as magit-revision-jump. */
+export function magitRevisionJump(menu: boolean): void {
+  if (menu) e8.call(revisionJumpMenu);
+  else e8.call("magit-jump-to-diffstat-or-diff" as e8.CommandName);
+}
+export const magitRevisionJumpCommand = e8.defineCommand({
+  name: "magit-revision-jump",
+  doc: "In a Magit-Revision buffer, jump to a section.\nShow a menu to choose a section, unless point is on a file heading, or with a prefix argument, in which case behave like 'magit-jump-to-diffstat-or-diff'.",
+  params: [{ name: "prefix", kind: "prefix" }],
+  run: (prefix: e8.Value) => magitRevisionJump(currentSection()?.type !== "file" || truthy(prefix)),
+});
+
 e8.defineCommand({
   name: "magit-section-cycle-diffs",
   doc: "Cycle visibility of diff-related sections in the current buffer.",
@@ -1613,15 +2052,24 @@ void magitSectionParentValue;
 
 // Keys.
 
-/** The keys diff sections have, as magit-diff-section-map and the file and hunk maps built on it. */
-e8.defineKeymap("magit-diff-section-map", null);
+/**
+ * The keys diff sections have, as magit-diff-section-map and the file and
+ * hunk maps built on it; Magit's magit-diff-section-base-map is the same
+ * map, under its other name.
+ */
+e8.defineKeymap("magit-diff-section-base-map", null);
+e8.defineKeymap("magit-diff-section-map", "magit-diff-section-base-map");
 for (const [key, command] of [
   ["C-j", "magit-diff-visit-worktree-file"],
   ["C-<return>", "magit-diff-visit-worktree-file"],
   ["C-x 4 <return>", "magit-diff-visit-file-other-window"],
   ["C-x 5 <return>", "magit-diff-visit-file-other-frame"],
+  ["&", "magit-do-async-shell-command"],
+  ["C", "magit-commit-add-log"],
+  ["C-c C-t", "magit-diff-trace-definition"],
+  ["C-c C-e", "magit-diff-edit-hunk-commit"],
 ] as const)
-  e8.defineKey("magit-diff-section-map", key, command as e8.CommandName);
+  e8.defineKey("magit-diff-section-base-map", key, command as e8.CommandName);
 e8.remapCommand("magit-diff-section-map", "magit-visit-thing" as e8.CommandName, "magit-diff-visit-file" as e8.CommandName);
 for (const [from, to] of [
   ["magit-revert-no-commit", "magit-reverse"],
@@ -1634,6 +2082,7 @@ for (const [from, to] of [
 e8.defineKeymap("magit-file-section-map", "magit-diff-section-map");
 e8.defineKeymap("magit-hunk-section-map", "magit-diff-section-map");
 /** The keys of smerge-command-prefix in a hunk, as magit-hunk-section-smerge-map. */
+const magitHunkSectionSmergeMap = e8.defineKeymap("magit-hunk-section-smerge-map", null);
 for (const [key, command] of [
   ["RET", "magit-smerge-keep-current"],
   ["a", "magit-smerge-keep-all"],
@@ -1641,7 +2090,8 @@ for (const [key, command] of [
   ["b", "magit-smerge-keep-base"],
   ["l", "magit-smerge-keep-lower"],
 ] as const)
-  e8.defineKey("magit-hunk-section-map", `C-c ^ ${key}`, command as e8.CommandName);
+  e8.defineKey(magitHunkSectionSmergeMap, key, command as e8.CommandName);
+e8.defineKey("magit-hunk-section-map", "C-c ^", magitHunkSectionSmergeMap);
 e8.defineKeymap("magit-commit-message-section-map", null);
 e8.remapCommand("magit-commit-message-section-map", "magit-visit-thing" as e8.CommandName, "magit-show-commit" as e8.CommandName);
 magitSectionDefineType("commit-message", { keymap: "magit-commit-message-section-map" });
@@ -1654,10 +2104,16 @@ for (const [key, command] of [
   ["+", "magit-diff-more-context"],
   ["-", "magit-diff-less-context"],
   ["0", "magit-diff-default-context"],
+  ["M-<tab>", "magit-section-cycle-diffs"],
 ] as const)
   e8.defineKey("magit-mode-map", key, command as e8.CommandName);
 for (const [key, command] of [
   ["C-c C-d", "magit-diff-while-committing"],
+  ["C-c C-b", "magit-go-backward"],
+  ["C-c C-f", "magit-go-forward"],
   ["j", "magit-jump-to-diffstat-or-diff"],
 ] as const)
   e8.defineKey("magit-diff-mode-map", key, command as e8.CommandName);
+// A revision buffer has a diff buffer's keys, as magit-revision-mode-map's parent is magit-diff-mode-map.
+e8.setKeymapParent("magit-revision-mode-map", "magit-diff-mode-map");
+e8.defineKey("magit-revision-mode-map", "j", "magit-revision-jump" as e8.CommandName);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Dired support for Magit, after magit-dired.el: from a Magit buffer,
-// M-TAB (and C-x C-j in the status buffer) lists the directory of the
+// C-M-i, which is M-TAB in Emacs, (and C-x C-j in the status buffer) lists the directory of the
 // file at point with point on it (magit-dired-jump), and & runs a shell
 // command on the file at point (magit-do-async-shell-command); in Dired,
 // staging, unstaging and the log of the marked files, which the file
@@ -78,7 +78,7 @@ export function magitDiredLog(follow = false): string {
   const files = marked.marked ? marked.files : [String(e8.variable("default-directory"))];
   if (follow && !args.includes("--follow") && files.length === 1) args = ["--follow", ...args];
   return e8.letBind({ "default-directory": topdir! }, () =>
-    magitLogSetupBuffer([magitGetCurrentBranch() ?? "HEAD"], args, files.map((f) => magitFileRelativeName(e8.expandFileName(f)) ?? f).map((f) => (f === "" ? "." : f))),
+    magitLogSetupBuffer([magitGetCurrentBranch() ?? "HEAD"], args, files.map((f) => magitFileRelativeName(e8.expandFileName(f)) ?? f).map((f) => (f === "" ? "." : f)), undefined, truthy(e8.variable("magit-log-buffer-file-locked"))),
   );
 }
 
@@ -127,6 +127,9 @@ export const magitDoAsyncShellCommandCommand = e8.defineCommand({
 
 // Keys, as magit-mode-map, magit-status-mode-map and magit-diff-section-map bind them.
 
-e8.defineKey("magit-mode-map", "M-TAB", magitDiredJumpCommand);
+// Emacs reads M-TAB as C-M-i, and M-<tab> as a key of its own, which
+// magit-mode-map binds to magit-section-cycle-diffs; E8 reads M-TAB as
+// M-<tab>, so this is bound as C-M-i only.
+e8.defineKey("magit-mode-map", "C-M-i", magitDiredJumpCommand);
 e8.remapCommand("magit-status-mode-map", "dired-jump", magitDiredJumpCommand);
 e8.defineKey("magit-diff-section-map", "&", magitDoAsyncShellCommandCommand);

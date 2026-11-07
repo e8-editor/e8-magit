@@ -601,7 +601,7 @@ const gitRebase = (target: string, args: string[]): string => sequencer(["rebase
 const resumeCommand = (): string => (e8.fileExistsP(e8.expandFileName("rebase-recursive", magitGitdir())) ? "rbr" : "rebase");
 
 /** Branches Magit treats as published that contain COMMIT, as magit-list-publishing-branches. */
-const publishingBranches = (commit: string): string[] =>
+export const magitListPublishingBranches = (commit = "HEAD"): string[] =>
   ((e8.variable("magit-published-branches") as string[] | null) ?? []).filter((b) => magitRevVerify(b) && magitRevAncestorP(commit, b));
 /** Repositories in which editing a published commit was confirmed, as magit--rebase-public-edit-confirmed. */
 const publicEditConfirmed = new Set<string>();
@@ -610,9 +610,9 @@ const publicEditConfirmed = new Set<string>();
 const targetCommit = (since: string): string => (since.endsWith("^") ? since.slice(0, -1) : since);
 
 /** Asks before rewriting published commits or a range with merges, giving SINCE or undefined to select another, as magit-rebase-interactive-assert. */
-function interactiveAssert(since: string, delayEditConfirm = false, rebaseMerges = false): string | undefined {
+export function magitRebaseInteractiveAssert(since: string, delayEditConfirm = false, rebaseMerges = false): string | undefined {
   const commit = targetCommit(since);
-  const branches = publishingBranches(commit);
+  const branches = magitListPublishingBranches(commit);
   const top = magitToplevel() ?? "";
   publicEditConfirmed.delete(top);
   if (branches.length > 0 && (!delayEditConfirm || !branches.every((b) => magitRevEqual(b, commit)))) {
@@ -633,7 +633,7 @@ function interactiveAssert(since: string, delayEditConfirm = false, rebaseMerges
 let rebasePublishedSymbol = "rebase-published";
 
 /** Starts an interactive rebase from COMMIT, or from one selected in a log, as magit-rebase-interactive-1; THEN runs when git ends. */
-function rebaseInteractive1(commitIn: string | undefined, argsIn: string[], message: string, editor?: string | ((since: string) => string), delayEditConfirm = false, noassert = false, confirm = false, includeSelected = true, then?: (exit: number) => void): void {
+export function magitRebaseInteractive1(commitIn: string | undefined, argsIn: string[], message: string, editor?: string | ((since: string) => string), delayEditConfirm = false, noassert = false, confirm = false, includeSelected = true, then?: (exit: number) => void): void {
   let commit = commitIn;
   let args = argsIn;
   if (commit) {
@@ -642,7 +642,7 @@ function rebaseInteractive1(commitIn: string | undefined, argsIn: string[], mess
       if (includeSelected) commit = `${commit}^`;
     } else args = ["--root", ...args];
   }
-  if (commit && !noassert) commit = interactiveAssert(commit, delayEditConfirm, args.some((a) => a.startsWith("--rebase-merges")));
+  if (commit && !noassert) commit = magitRebaseInteractiveAssert(commit, delayEditConfirm, args.some((a) => a.startsWith("--rebase-merges")));
   if (commit && !confirm) {
     const env = editor ? { GIT_SEQUENCE_EDITOR: typeof editor === "function" ? editor(commit) : editor } : undefined;
     sequencer(["rebase", "-i", ...args, args.includes("--root") ? undefined : commit], then, env);
@@ -650,7 +650,7 @@ function rebaseInteractive1(commitIn: string | undefined, argsIn: string[], mess
   }
   const global = e8.variable("magit-git-global-arguments") ?? null;
   magitLogSelect(
-    (rev) => e8.letBind({ "magit-git-global-arguments": global }, () => rebaseInteractive1(rev, argsIn, message, editor, delayEditConfirm, noassert)),
+    (rev) => e8.letBind({ "magit-git-global-arguments": global }, () => magitRebaseInteractive1(rev, argsIn, message, editor, delayEditConfirm, noassert)),
     message.replace("%p", "."),
   );
 }
@@ -714,7 +714,7 @@ export const magitRebaseSubset = e8.defineCommand({
 export const magitRebaseInteractive = e8.defineCommand({
   name: "magit-rebase-interactive",
   doc: "Start an interactive rebase sequence.",
-  run: () => rebaseInteractive1(magitCommitAtPoint(), rebaseArgs(), "Type %p on a commit to rebase it and all commits above it,", undefined, true, false, false, truthy(e8.variable("magit-rebase-interactive-include-selected"))),
+  run: () => magitRebaseInteractive1(magitCommitAtPoint(), rebaseArgs(), "Type %p on a commit to rebase it and all commits above it,", undefined, true, false, false, truthy(e8.variable("magit-rebase-interactive-include-selected"))),
 });
 export const magitRebaseAutosquash = e8.defineCommand({
   name: "magit-rebase-autosquash",
@@ -722,13 +722,13 @@ export const magitRebaseAutosquash = e8.defineCommand({
   run: () => {
     const upstream = prefixArgP() ? undefined : magitGetUpstreamBranch();
     const base = upstream ? magitGitString("merge-base", upstream, "HEAD") : undefined;
-    rebaseInteractive1(base, ["--autosquash", "--keep-empty", ...rebaseArgs()], "Type %p on a commit to squash into it and then rebase as necessary,", "true", false, true);
+    magitRebaseInteractive1(base, ["--autosquash", "--keep-empty", ...rebaseArgs()], "Type %p on a commit to squash into it and then rebase as necessary,", "true", false, true);
   },
 });
 export const magitRebaseEditCommit = e8.defineCommand({
   name: "magit-rebase-edit-commit",
   doc: "Edit a single older commit using rebase.",
-  run: () => rebaseInteractive1(magitCommitAtPoint(), rebaseArgs(), "Type %p on a commit to edit it,", perlEditor("edit"), true),
+  run: () => magitRebaseInteractive1(magitCommitAtPoint(), rebaseArgs(), "Type %p on a commit to edit it,", perlEditor("edit"), true),
 });
 /**
  * Edits COMMIT with a rebase, with ARGS, then calling THEN when git ends,
@@ -740,7 +740,7 @@ export function magitRebaseEditCommitRev(commit: string, args: string[] = rebase
   const outer = rebasePublishedSymbol;
   rebasePublishedSymbol = publishedSymbol;
   try {
-    rebaseInteractive1(commit, args, "Type %p on a commit to edit it,", perlEditor("edit"), true, false, false, true, then);
+    magitRebaseInteractive1(commit, args, "Type %p on a commit to edit it,", perlEditor("edit"), true, false, false, true, then);
   } finally {
     rebasePublishedSymbol = outer;
   }
@@ -748,7 +748,7 @@ export function magitRebaseEditCommitRev(commit: string, args: string[] = rebase
 export const magitRebaseRewordCommit = e8.defineCommand({
   name: "magit-rebase-reword-commit",
   doc: "Reword a single older commit using rebase.",
-  run: () => rebaseInteractive1(magitCommitAtPoint(), rebaseArgs(), "Type %p on a commit to reword its message,", perlEditor("reword")),
+  run: () => magitRebaseInteractive1(magitCommitAtPoint(), rebaseArgs(), "Type %p on a commit to reword its message,", perlEditor("reword")),
 });
 export const magitRebaseRemoveCommit = e8.defineCommand({
   name: "magit-rebase-remove-commit",
@@ -757,7 +757,7 @@ export const magitRebaseRemoveCommit = e8.defineCommand({
     // The perl editor assumes that the comment character is "#".
     const global = (e8.variable("magit-git-global-arguments") as string[] | null) ?? [];
     e8.letBind({ "magit-git-global-arguments": ["-c", "core.commentChar=#", ...global] }, () =>
-      rebaseInteractive1(magitCommitAtPoint(), rebaseArgs(), "Type %p on a commit to remove it,", perlEditor("remove"), false, false, true),
+      magitRebaseInteractive1(magitCommitAtPoint(), rebaseArgs(), "Type %p on a commit to remove it,", perlEditor("remove"), false, false, true),
     );
   },
 });

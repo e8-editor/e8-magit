@@ -78,6 +78,9 @@ const abbrevIfHash = (rev: string): string => (/^[0-9a-f]{40,}$/.test(rev) ? (ma
 
 /** The buffer of FILE at REV's name, as magit-get-revision-buffer. */
 export const magitRevisionBufferName = (rev: string, file: string): string => `${file}.~${rev.replace(/\//g, "_")}~`;
+/** The buffer of FILE at REV, or with CREATE a new one, as magit-get-revision-buffer. */
+export const magitGetRevisionBuffer = (rev: string, file: string, create = false): e8.Buffer | undefined =>
+  create ? e8.getBufferCreate(magitRevisionBufferName(rev, file)) : e8.getBuffer(magitRevisionBufferName(rev, file));
 
 /** Turns on the major mode auto-mode-alist gives FILE, as set-auto-mode. */
 function setAutoMode(file: string): void {
@@ -585,5 +588,3 @@ export const magitFileDispatch = transientDefinePrefix("magit-file-dispatch", {
   ],
 });
 
-// Magit's global keys, as magit-define-global-key-bindings's default: C-c M-g for the file dispatch.
-e8.bindKey("C-c M-g", magitFileDispatch);

@@ -17,7 +17,8 @@
 // option) any later version.
 
 import { currentSection, type Section } from "magit-section";
-import { magitCompletingRead } from "magit-base";
+import { magitCompletingRead, magitFormatTimeString } from "magit-base";
+import { truthy } from "subr";
 
 e8.defineVariable({ name: "magit-git-executable", doc: "The Git executable used by Magit.", value: "git" });
 e8.defineVariable({
@@ -104,8 +105,114 @@ const flatten = (args: GitArg[]): string[] => args.flatMap((a) => (Array.isArray
 
 /** Runs git with ARGS in DIR, the current directory by default: its exit code and output. */
 export function magitGitRun(args: GitArg[], options: { input?: string; dir?: string } = {}): { exit: number; output: string } {
-  return e8.callProcess([magitGitExecutable(), ...magitProcessGitArguments(args)], { directory: e8.expandFileName(options.dir ?? defaultDirectory()), input: options.input });
+  const program = magitGitExecutable();
+  const flat = magitProcessGitArguments(args);
+  const directory = e8.expandFileName(options.dir ?? defaultDirectory());
+  magitProcessRecord(program, flat, directory);
+  const start = profiling ? Date.now() : 0;
+  const r = e8.callProcess([program, ...flat], { directory, input: options.input });
+  if (profiling) {
+    const name = `git ${flatten(args).find((a) => !a.startsWith("-")) ?? ""}`.trim();
+    const p = profile.get(name) ?? { count: 0, time: 0 };
+    p.count++;
+    p.time += Date.now() - start;
+    profile.set(name, p);
+  }
+  if (r.exit !== 0 && truthy(e8.variable("magit-git-debug"))) gitDebugReporter?.(program, flat, directory, r.exit, r.output);
+  return r;
 }
+
+// Debugging, after magit-git.el's magit-toggle-git-debug and
+// magit-debug-git-executable and magit-process.el's recording of the
+// processes it starts.
+
+/** What reports a failing git whose output Magit consumes, with magit-git-debug: magit-process.ts puts it in the process buffer. */
+let gitDebugReporter: ((program: string, args: string[], dir: string, exit: number, output: string) => void) | undefined;
+export const magitSetGitDebugReporter = (fn: typeof gitDebugReporter): void => void (gitDebugReporter = fn);
+
+e8.defineVariable({ name: "magit-process-record-invocations", doc: "Whether to record each process Magit runs, as magit-toggle-subprocess-record turns on.", value: false });
+e8.defineVariable({ name: "magit-process-record-buffer-name", doc: "The buffer the processes Magit runs are recorded in.", value: " *magit-process-file record*" });
+e8.defineVariable({ name: "magit-process-record-entry-format", doc: "The format of a process's record: a format-time-string format, in which %%d is the directory and %%a the command.", value: "%T %%d $ %%a" });
+
+/** Records PROGRAM run with ARGS in DIR, with magit-process-record-invocations, as magit-process-file does. */
+export function magitProcessRecord(program: string, args: string[], dir: string): void {
+  if (!truthy(e8.variable("magit-process-record-invocations"))) return;
+  const format = String(e8.variable("magit-process-record-entry-format") ?? "%T %%d $ %%a");
+  const command = [program, ...args].map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(" ");
+  const entry = magitFormatTimeString(format, Date.now() / 1000).replace(/%[da%]/g, (m) => (m === "%d" ? e8.abbreviateFileName(dir) : m === "%a" ? command : "%"));
+  const buffer = String(e8.variable("magit-process-record-buffer-name"));
+  e8.getBufferCreate(buffer);
+  e8.withCurrentBuffer(buffer, () => {
+    e8.gotoChar(e8.pointMax());
+    e8.insert(`${entry}\n`);
+  });
+}
+
+export const magitToggleGitDebug = e8.defineCommand({
+  name: "magit-toggle-git-debug",
+  doc:
+    "Toggle whether additional git errors are reported.\n\n" +
+    "Magit basically calls git for one of these two reasons: for side-effects or to do something with its standard output.\n\n" +
+    "When git is run for side-effects then its output, including error messages, go into the process buffer which is shown when using $.\n\n" +
+    "When git's output is consumed in some way, then it would be too expensive to also insert it into this buffer, but with this command that can be enabled temporarily.  In that case, if git returns with a non-zero exit status, then at least its standard error is inserted into this buffer.",
+  run: () => {
+    const on = !truthy(e8.variable("magit-git-debug"));
+    e8.setVariable("magit-git-debug", on);
+    e8.message(`Additional reporting of Git errors ${on ? "enabled" : "disabled"}`);
+  },
+});
+
+/** Git's version, or why it cannot be had, as magit--safe-git-version. */
+function safeGitVersion(git: string): string {
+  const r = e8.callProcess([git, "version"]);
+  const m = /(\d+(?:\.\d+)*)/.exec(r.output);
+  return r.exit === 0 && m ? m[1] : `error: ${r.output.trim() || `exit ${r.exit}`}`;
+}
+
+export const magitDebugGitExecutable = e8.defineCommand({
+  name: "magit-debug-git-executable",
+  doc: "Display a buffer with information about magit-git-executable.\nAlso include information about magit-remote-git-executable.",
+  run: () => {
+    const buffer = "*magit-git-executable*";
+    e8.getBufferCreate(buffer);
+    e8.call("pop-to-buffer", buffer);
+    e8.withCurrentBuffer(buffer, () => {
+      e8.deleteRegion(e8.pointMin(), e8.pointMax());
+      const git = magitGitExecutable();
+      const quote = (x: unknown) => JSON.stringify(x);
+      const execPath = ((e8.variable("exec-path") as unknown[] | null) ?? String(e8.getenv("PATH") ?? "").split(":")).map(String);
+      const path = String(e8.getenv("PATH") ?? "").split(":").filter((d) => d !== "" && e8.fileExistsP(d));
+      const lines = [`magit-remote-git-executable: ${quote(e8.variable("magit-remote-git-executable") ?? "git")}`];
+      const found = git.startsWith("/") ? undefined : execPath.map((d) => e8.expandFileName(git, d)).find((f) => e8.fileExecutableP(f));
+      lines.push(`magit-git-executable: ${quote(git)}${found !== undefined ? ` [${quote(found)}]` : git.startsWith("/") ? "" : " [nil]"} (${safeGitVersion(git)})`);
+      lines.push(`exec-path: (${execPath.map(quote).join(" ")})`);
+      const missing = path.filter((d) => !execPath.some((e) => e8.fileNameAsDirectory(e8.expandFileName(e)) === e8.fileNameAsDirectory(e8.expandFileName(d))));
+      if (missing.length > 0) lines.push(`  entries in PATH, but not in exec-path: (${missing.map(quote).join(" ")})`);
+      for (const dir of execPath) {
+        const exists = e8.fileDirectoryP(dir);
+        lines.push(`  ${dir} (${exists ? "t" : "nil"})`);
+        if (!exists) continue;
+        for (const exec of e8.directoryFiles(dir, { full: true, match: "^git$" })) lines.push(`    ${exec} (${safeGitVersion(exec)})`);
+      }
+      e8.insert(`${lines.join("\n")}\n`);
+    });
+  },
+});
+
+// Profiling, which magit-toggle-profiling turns on: how often each git command ran and how long it took.
+
+let profiling = false;
+const profile = new Map<string, { count: number; time: number }>();
+/** Whether git runs are being profiled. */
+export const magitProfiling = (): boolean => profiling;
+/** Starts profiling git's runs afresh, or with ON false stops and forgets them. */
+export function magitProfile(on: boolean): void {
+  profiling = on;
+  profile.clear();
+}
+/** Each git command profiled: its name, how many times it ran and its milliseconds in all, the slowest first. */
+export const magitProfileResults = (): { name: string; count: number; time: number }[] =>
+  [...profile.entries()].map(([name, p]) => ({ name, ...p })).sort((a, b) => b.time - a.time);
 
 /** Git's exit code for ARGS, as magit-git-exit-code. */
 export const magitGitExitCode = (...args: GitArg[]): number => magitGitRun(args).exit;
@@ -1035,6 +1142,13 @@ export function magitDefaultStartingPoint(): string | undefined {
 /** Reads a tag, as magit-read-tag. */
 export const magitReadTag = (prompt: string): string => magitCompletingRead(prompt, magitListTags(), { requireMatch: true, history, def: magitTagAtPoint() })!;
 
+/** Reads a shelved branch, the one at point by default, as magit-read-shelved-branch: its name under refs/shelved/. */
+export function magitReadShelvedBranch(prompt: string): string {
+  const at = magitSectionValueIf("shelved-branch");
+  const choices = magitListRefnames("refs/shelved").map((r) => r.replace(/^shelved\//, "")).reverse();
+  return magitCompletingRead(prompt, choices, { requireMatch: true, def: typeof at === "string" ? at.slice(13) : undefined }) ?? e8.userError("Nothing selected");
+}
+
 /** Reads a stash, as magit-read-stash: the stash at point by default, else the newest. */
 export function magitReadStash(prompt: string): string {
   const atpoint = magitStashAtPoint();
@@ -1061,6 +1175,8 @@ export const magitReadModulePath = (prompt: string): string => magitCompletingRe
 
 let gitVersion: string | undefined;
 /** Git's version, as 2.51.2, as magit-git-version. */
+/** Forgets git's version, for magit-zap-caches. */
+export const magitZapGitVersionCache = (): void => void (gitVersion = undefined);
 export function magitGitVersion(): string {
   gitVersion ??= /(\d+(?:\.\d+)*)/.exec(magitGitString("version") ?? "")?.[1] ?? "0";
   return gitVersion;

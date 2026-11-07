@@ -699,3 +699,11 @@ function magitSubmoduleRestoreWorktree(worktree: string, gitdir: string): void {
   e8.writeTextFile(e8.expandFileName(".git", worktree), `gitdir: ${fileRelativeName(gitdir, worktree)}\n`);
   inDirectory(e8.fileNameAsDirectory(worktree), () => magitCallGit("reset", "--hard", "HEAD", "--"));
 }
+
+// The button keys tabulated-list-mode-map has in Emacs, from button-buffer-map, which E8's lacks.
+for (const [key, command] of [
+  ["TAB", "forward-button"],
+  ["<backtab>", "backward-button"],
+  ["C-M-i", "backward-button"],
+] as const)
+  e8.defineKey("magit-submodule-list-mode-map", key, command as e8.CommandName);

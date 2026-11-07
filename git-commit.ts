@@ -1020,6 +1020,8 @@ for (const [key, command] of [
   ["C-c C-a", "git-commit-ack"],
   ["C-c M-i", "git-commit-suggested"],
   ["C-c C-m", "git-commit-modified"],
+  // Emacs reads C-m as RET, E8 as a key of its own.
+  ["C-c RET", "git-commit-modified"],
   ["C-c C-o", "git-commit-cc"],
   ["C-c C-p", "git-commit-reported"],
   ["C-c C-r", "git-commit-review"],
@@ -1045,6 +1047,8 @@ export const gitCommitMode = e8.defineMinorMode({
     "C-c M-p": commands.searchBackward,
     "C-c M-n": commands.searchForward,
     "C-c C-i": gitCommitInsertTrailerMenu,
+    // Emacs reads C-i as TAB, E8 as a key of its own.
+    "C-c TAB": gitCommitInsertTrailerMenu,
     "C-c M-s": commands.saveMessage,
     "C-c C-d": "magit-diff-while-committing" as e8.CommandName,
     // C-c C-w, magit-pop-revision-stack, is not in E8's Magit yet.

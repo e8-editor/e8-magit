@@ -13,7 +13,7 @@ ertDeftest("magit-dired-jump-lists-the-directory-of-the-file-at-point", () => {
   withRepos([dir], () => {
     status(dir);
     gotoText("modified   a.txt");
-    e8.executeKbdMacro("M-TAB");
+    e8.executeKbdMacro("C-M-i");
     shouldEqual(String(e8.variable("major-mode")), "dired-mode");
     should(e8.bufferSubstringNoProperties(e8.lineBeginningPosition(), e8.lineEndPosition()).endsWith("a.txt"), e8.bufferText());
     // In the status buffer, C-x C-j does too, without a file at point listing the repository.

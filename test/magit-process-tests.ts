@@ -118,3 +118,52 @@ ertDeftest("magit-process-a-username-and-yes-or-no-are-asked", () => {
     should(second.output.includes("got: yes"), second.output);
   });
 });
+
+ertDeftest("magit-process-the-mode-line-shows-the-command-and-its-error", () => {
+  inFixture("basic", (repo) => {
+    e8.call("magit-status" as e8.DefinedCommand);
+    const modeLine = () => e8.withCurrentBuffer("magit: repo", () => e8.variable("mode-line-process"));
+    // Starting git shows it in the mode line, as magit-process-set-mode-line.
+    proc.magitProcessSetModeLine("/bin/sh", ["-c", "true"], repo);
+    shouldEqual(String(modeLine()), " sh -c");
+    // A failing command keeps its error in the mode line, its first lines the tooltip.
+    e8.letBind({ "magit-process-error-tooltip-max-lines": 1 }, () => proc.magitRunGit("checkout", "no-such-branch"));
+    const error = modeLine() as e8.PropertizedString;
+    shouldEqual(String(error), " git checkout");
+    const props = error.properties.find(([from]) => from === 1)![2];
+    shouldEqual(props["font-lock-face"], "magit-mode-line-process-error");
+    shouldEqual(props["help-echo"], "error: pathspec 'no-such-branch' did not match any file(s) known to git\n\nmouse-1: Show process buffer");
+    // It stays through the refresh after the command, and goes with the next command's refresh.
+    e8.runHooks("pre-command-hook");
+    e8.withCurrentBuffer("magit: repo", () => e8.call("magit-refresh" as e8.DefinedCommand));
+    shouldEqual(modeLine(), null);
+    // A command that succeeds takes the command off the mode line.
+    shouldEqual(proc.magitRunGit("branch", "new"), 0);
+    shouldEqual(modeLine(), null);
+    // Without magit-process-display-mode-line-error, an error is not kept.
+    e8.letBind({ "magit-process-display-mode-line-error": false }, () => proc.magitRunGit("checkout", "no-such-branch"));
+    shouldEqual(modeLine(), null);
+  });
+});
+
+ertDeftest("magit-process-timestamps-and-colors-in-the-process-buffer", () => {
+  inFixture("basic", (repo) => {
+    e8.call("magit-status" as e8.DefinedCommand);
+    const colored = ["sh", "-c", "printf '\\033[31mred\\033[0m plain\\n'"];
+    // Without magit-process-apply-ansi-colors the escapes are left as they are.
+    proc.magitCallProcess(colored[0], colored.slice(1));
+    const name = proc.magitProcessBuffer(true);
+    should(e8.withCurrentBuffer(name, () => e8.bufferText()).includes("\x1b[31mred"));
+    e8.letBind({ "magit-process-apply-ansi-colors": true, "magit-process-timestamp-format": "%Y" }, () => {
+      proc.magitCallProcess(colored[0], colored.slice(1));
+      const text = e8.withCurrentBuffer(name, () => e8.bufferText());
+      // The heading has the time the command started, as magit-process-timestamp-format formats it.
+      should(new RegExp(`^  0 ${new Date().getFullYear()} sh -c `, "m").test(text), text);
+      should(text.includes("\nred plain\n"), text);
+      const at = e8.withCurrentBuffer(name, () => e8.bufferText().lastIndexOf("red plain") + e8.pointMin());
+      const face = e8.withCurrentBuffer(name, () => e8.getTextProperty(at, "face") ?? e8.getTextProperty(at, "font-lock-face"));
+      should(JSON.stringify(face).includes("ansi-color-red"), JSON.stringify(face));
+    });
+    void repo;
+  });
+});

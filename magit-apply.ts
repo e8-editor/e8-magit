@@ -44,12 +44,12 @@ import {
   magitDiffContextP,
   magitDiffFileHeader,
   magitDiffGetContext,
-  magitDiffHunkLine,
   magitDiffHunkRegionPatch,
   magitDiffIgnoreAnySpaceP,
   magitDiffScope,
   magitDiffType,
   type FileValue,
+  magitDiffVisitFileNoselect,
 } from "magit-diff";
 import { magitListUntrackedFiles } from "magit-status";
 import { magitCheckoutReadStage, magitCheckoutStage } from "magit-merge";
@@ -782,14 +782,14 @@ export const magitReverseInIndexCommand = e8.defineCommand({
 // Smerge support.
 
 /** A conflict: where it starts and ends, and its upper, base and lower versions, as smerge-match-conflict's match data. */
-interface Conflict {
+export interface Conflict {
   start: number;
   end: number;
   versions: ([number, number] | undefined)[];
 }
 
 /** The conflict around POS in the current buffer, as smerge-match-conflict. */
-function smergeMatchConflict(pos: number): Conflict {
+export function smergeMatchConflict(pos: number): Conflict {
   const fail = (): never => e8.userError("Point not in conflict region");
   const bol = (p: number): number => e8.lineBeginningPosition(p);
   const next = (p: number): number => Math.min(e8.lineEndPosition(p) + 1, e8.pointMax());
@@ -831,7 +831,7 @@ function smergeMatchConflict(pos: number): Conflict {
 }
 
 /** Keeps version N of conflict C, as smerge-keep-n. */
-function smergeKeepN(c: Conflict, n: number): void {
+export function smergeKeepN(c: Conflict, n: number): void {
   const [b, e] = c.versions[n]!;
   e8.deleteRegion(e, c.end);
   e8.deleteRegion(c.start, b);
@@ -865,22 +865,6 @@ function smergeKeep(side: Side, c: Conflict, pos: number): void {
   }
 }
 
-/** The worktree's buffer of the file at point and the position the line of point in its diff shows, as magit-diff-visit-file--noselect. */
-function visitFileNoselect(): [string, number] {
-  const s = currentSection();
-  const file = magitFileAtPoint(true);
-  if (!s || !file) e8.userError("No file at point");
-  const line = s.type === "hunk" ? magitDiffHunkLine(s) : 1;
-  const prefix = s.type === "hunk" && (s.value as FileValue).hunk?.combined ? 2 : 1;
-  const column = s.type === "hunk" && e8.point() >= s.content ? Math.max(0, e8.currentColumn() - prefix) : 0;
-  const buf = e8.findFileNoselect(file);
-  const pos = e8.withCurrentBuffer(buf, () => {
-    const l = Math.max(0, Math.min(line - 1, e8.lineCount() - 1));
-    return Math.min(e8.lineStart(l) + column, e8.lineEnd(l));
-  });
-  return [buf, pos];
-}
-
 /**
  * Keeps SIDE of the conflict the line of point in a hunk shows, in the
  * file, then saves it, as magit-call-smerge: outside a conflict, the next
@@ -889,7 +873,7 @@ function visitFileNoselect(): [string, number] {
 export function magitCallSmerge(side: Side, discard = false): void {
   const file = magitFileAtPoint(true)!;
   const kept = e8.bufferList().find((b) => e8.withCurrentBuffer(b, () => e8.bufferFileName()) === file);
-  const [buf, pos] = visitFileNoselect();
+  const [buf, pos] = magitDiffVisitFileNoselect();
   e8.withCurrentBuffer(buf, () => {
     e8.saveExcursion(() => {
       let at = pos;
