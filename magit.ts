@@ -32,6 +32,28 @@ import { currentSection, insertHeading, insertRoot, insertSection, magitSectionM
 import { transientArgs, transientDefinePrefix, type Group } from "transient";
 import { forwardLine, PerBuffer, truthy } from "subr";
 import { withEditorEnv, withEditorFilter } from "with-editor";
+import { magitCompletingRead } from "magit-base";
+import {
+  magitFormatRefLabels,
+  magitGetCurrentBranch,
+  magitGetPushRemote,
+  magitGetUpstreamBranch,
+  magitGitExecutable,
+  magitGitLines,
+  magitGitRun,
+  magitGitString,
+  magitListLocalBranchNames,
+  magitListRemoteBranchNames,
+  magitListRemotes,
+  magitNoCommitP,
+  magitProcessGitArguments,
+  magitRebaseInProgressP,
+  magitReadBranchOrCommit,
+  magitReadStash,
+  magitToplevel,
+  magitToplevelOrError,
+  magitWithRefreshCache,
+} from "magit-git";
 
 // Faces.
 
@@ -56,43 +78,27 @@ const faces: [string, string, e8.FaceAttributes, e8.FaceAttributes?, e8.FaceAttr
 ];
 for (const [name, doc, attributes, light, dark] of faces) e8.defineFace({ name, doc, attributes, light, dark });
 
-e8.defineVariable({ name: "magit-git-executable", doc: "The Git executable used by Magit.", value: "git" });
 e8.defineVariable({ name: "magit-log-section-commit-count", doc: "How many recent commits the status buffer shows.", value: 10 });
 e8.defineVariable({ name: "magit-save-repository-buffers", doc: "Whether to save the repository's modified file buffers before running git, as Magit asks.", value: true });
 
 // Running git.
 
-/** The repository's top directory, with a slash, for DIR or the current buffer's directory, as magit-toplevel. */
-export function toplevel(dir = String(e8.variable("default-directory") ?? ".")): string | undefined {
-  const r = e8.callProcess([git(), "rev-parse", "--show-toplevel"], { directory: e8.expandFileName(dir) });
-  return r.exit === 0 ? e8.fileNameAsDirectory(r.output.trim()) : undefined;
-}
+/** The repository's top directory, as magit-toplevel. */
+export const toplevel = (dir?: string): string | undefined => magitToplevel(dir);
 
-const git = (): string => String(e8.variable("magit-git-executable") ?? "git");
-
-/** The repository the current buffer belongs to, as Magit's buffers keep it in default-directory. */
-function repo(): string {
-  const top = toplevel();
-  if (!top) e8.userError(`Not inside a Git repository: ${e8.abbreviateFileName(String(e8.variable("default-directory")))}`);
-  return top!;
-}
+/** The repository the current buffer belongs to, or an error. */
+const repo = (): string => magitToplevelOrError();
 
 /** The commands run and their output, for $ to show, as the magit-process buffer has them. */
 const processLog: { args: string[]; exit: number; output: string; dir: string }[] = [];
 
-/** Runs git with ARGS in the repository and gives its output, as magit-git-string and magit-git-lines. */
+/** Runs git with ARGS in the repository: its exit code and output. */
 export function gitOutput(args: string[], input?: string, dir = repo()): { exit: number; output: string } {
-  return e8.callProcess([git(), "--no-pager", "--literal-pathspecs", "-c", "core.preloadindex=true", "-c", "log.showSignature=false", "-c", "color.ui=false", "-c", "color.diff=false", ...args], { directory: dir, input });
+  return magitGitRun(args, { input, dir });
 }
 
-const gitString = (args: string[]): string | undefined => {
-  const r = gitOutput(args);
-  return r.exit === 0 ? r.output.replace(/\n$/, "") : undefined;
-};
-const gitLines = (args: string[]): string[] => {
-  const r = gitOutput(args);
-  return r.exit === 0 ? r.output.split("\n").filter((l) => l !== "") : [];
-};
+const gitString = (args: string[]): string | undefined => magitGitString(...args);
+const gitLines = (args: string[]): string[] => magitGitLines(...args);
 
 /** Runs git for its effect, logging it for $, and refreshes the status, as magit-run-git; an error says what git said. */
 export function runGit(args: string[], input?: string): boolean {
@@ -121,7 +127,7 @@ export function runGitAsync(args: string[], what: string, editor = false, env: {
   };
   e8.makeProcess({
     name: "magit-git",
-    command: [git(), "--no-pager", "-c", "color.ui=false", ...args],
+    command: [magitGitExecutable(), ...magitProcessGitArguments(args)],
     directory: dir,
     // With an editor, git asks E8 to edit its messages and lists, as magit-run-git-with-editor.
     env: { GIT_TERMINAL_PROMPT: "0", ...(editor ? withEditorEnv() : {}), ...env },
@@ -153,23 +159,15 @@ function saveRepositoryBuffers(): void {
 
 const face = (text: string, f: string): e8.PropertizedString => e8.propertize(text, { face: f });
 
-/** A ref as Magit shows it in a log line, from %D's decorations, as magit-format-ref-labels. */
+/** The labels of a commit's refs, with a space after them, as a log line shows them. */
 function refLabels(decorations: string): e8.PropertizedString | string {
-  const parts: e8.PropertizedString[] = [];
-  for (const d of decorations.split(", ").filter((x) => x !== "")) {
-    if (d.startsWith("HEAD -> ")) parts.push(face(d.slice(8), "magit-branch-current"));
-    else if (d === "HEAD") parts.push(face("@", "magit-head"));
-    else if (d.startsWith("tag: ")) parts.push(face(d.slice(5), "magit-tag"));
-    else if (d.endsWith("/HEAD")) continue;
-    else if (d.includes("/")) parts.push(face(d, "magit-branch-remote"));
-    else parts.push(face(d, "magit-branch-local"));
-  }
-  return parts.length === 0 ? "" : e8.concat(...parts.flatMap((p, i) => (i === 0 ? [p] : [" ", p])), " ");
+  const labels = magitFormatRefLabels(decorations);
+  return labels === "" ? "" : e8.concat(labels, " ");
 }
 
 /** Inserts commits as a section's lines, hash, refs and subject, as magit-insert-log does in the status buffer. */
 function insertCommits(range: string[]): number {
-  const lines = gitLines(["log", "--format=%h%x00%D%x00%s", ...range, "--"]);
+  const lines = gitLines(["log", "--format=%h%x00%D%x00%s", "--decorate=full", ...range, "--"]);
   for (const line of lines) {
     const [hash, refs, subject] = line.split("\0");
     insertSection("commit", hash, false, () => {
@@ -179,10 +177,8 @@ function insertCommits(range: string[]): number {
   return lines.length;
 }
 
-/** The branch HEAD is on, or undefined if detached. */
-const currentBranch = (): string | undefined => gitString(["symbolic-ref", "--short", "-q", "HEAD"]);
-/** The upstream of BRANCH, as origin/main. */
-const upstreamOf = (branch?: string): string | undefined => (branch ? gitString(["rev-parse", "--abbrev-ref", `${branch}@{upstream}`]) : undefined);
+const currentBranch = magitGetCurrentBranch;
+const upstreamOf = (branch?: string): string | undefined => (branch ? magitGetUpstreamBranch(branch) : undefined);
 
 /** The status buffer's header lines: Head, Merge and Push, as magit-insert-status-headers. */
 function insertHeaders(): void {
@@ -275,7 +271,7 @@ function insertFiles(diffs: FileDiff[], kind: "unstaged" | "staged" | "commit"):
 }
 
 /** Whether HEAD names a commit yet. */
-const hasCommits = (): boolean => gitOutput(["rev-parse", "--verify", "-q", "HEAD"]).exit === 0;
+const hasCommits = (): boolean => !magitNoCommitP();
 
 /** Inserts the status buffer, as magit-status-refresh-buffer and magit-status-sections-hook. */
 function insertStatus(): void {
@@ -375,7 +371,7 @@ function refreshBuffer(): void {
   const at = currentSection();
   const line = e8.lineOf(e8.point());
   const id = at ? sectionPath(at) : undefined;
-  e8.letBind({ "inhibit-read-only": true }, () => entry.refresh());
+  e8.letBind({ "inhibit-read-only": true }, () => magitWithRefreshCache(entry.refresh));
   const again = id ? (sections()?.all ?? []).find((s) => sectionPath(s) === id) : undefined;
   if (again) e8.gotoChar(again.start);
   else e8.gotoChar(e8.lineStart(Math.min(line, e8.lineCount() - 1)));
@@ -393,6 +389,9 @@ const sectionPath = (s: Section): string => {
 
 /** Refreshes every Magit buffer of the repository, as magit-refresh does after a command. */
 function refreshAll(dir = toplevel()): void {
+  magitWithRefreshCache(() => refreshEach(dir));
+}
+function refreshEach(dir: string | undefined): void {
   for (const b of e8.bufferList()) {
     const buf = e8.getBuffer(b);
     if (!buf || !buffers.get(buf)) continue;
@@ -431,7 +430,7 @@ export const magitStatus = e8.defineCommand({
     if (!dir) {
       const answer = e8.readFileName("Initialize Git repository: ", { dir: String(e8.variable("default-directory")) });
       if (!e8.yOrNP(`Create repository in ${answer}? `)) e8.userError("Abort");
-      e8.callProcess([git(), "init", e8.expandFileName(answer)]);
+      e8.callProcess([magitGitExecutable(), "init", e8.expandFileName(answer)]);
       e8.letBind({ "default-directory": e8.fileNameAsDirectory(e8.expandFileName(answer)) }, () => e8.call(magitStatus));
       return;
     }
@@ -727,16 +726,13 @@ const commitReword = e8.defineCommand({
 
 // Branches, after magit-branch.el.
 
-const localBranches = (): string[] => gitLines(["for-each-ref", "--format=%(refname:short)", "refs/heads"]);
-const remoteBranches = (): string[] => gitLines(["for-each-ref", "--format=%(refname:short)", "refs/remotes"]).filter((b) => !b.endsWith("/HEAD"));
+const localBranches = magitListLocalBranchNames;
+const remoteBranches = (): string[] => magitListRemoteBranchNames();
 
-/** Reads a branch or commit, as magit-read-branch-or-commit. */
+/** Reads one of CHOICES, as magit-completing-read with Magit's revision history. */
 function readBranch(prompt: string, choices = [...localBranches(), ...remoteBranches()], def?: string): string {
-  const answer = e8.completingRead(def ? `${prompt} (default ${def}): ` : `${prompt}: `, choices, { default: def, history: "magit-revision-history" });
-  if (answer === "") e8.userError("Nothing selected");
-  return answer;
+  return magitCompletingRead(prompt, choices, { requireMatch: "any", history: "magit-revision-history", def }) ?? e8.userError("Nothing selected");
 }
-e8.defineVariable({ name: "magit-revision-history", doc: "Branches and commits Magit read.", value: [] });
 
 const branchCheckout = e8.defineCommand({
   name: "magit-checkout",
@@ -794,7 +790,7 @@ const branchRename = e8.defineCommand({
 
 // Pushing, pulling and fetching, after magit-push.el, magit-pull.el and magit-fetch.el.
 
-const remotes = (): string[] => gitLines(["remote"]);
+const remotes = magitListRemotes;
 
 /** The upstream of the current branch, asking for one to set if there is none, as magit-push-current-to-upstream does. */
 function ensureUpstream(verb: string): [string, string, boolean] {
@@ -881,9 +877,7 @@ const resetCommand = (mode: string, doc: string) =>
 function stashAt(prompt: string): string {
   const s = currentSection();
   if (s?.type === "stash") return String(s.value);
-  const list = gitLines(["stash", "list", "--format=%gd"]);
-  if (list.length === 0) e8.userError("No stashes");
-  return e8.completingRead(`${prompt} (default ${list[0]}): `, list, { default: list[0], requireMatch: true });
+  return magitReadStash(prompt);
 }
 
 const stashBoth = e8.defineCommand({
@@ -1056,12 +1050,7 @@ const notYet = (name: string, what: string) =>
 
 /** The commit at point, or one read from the log, as magit-read-branch-or-commit. */
 function readCommit(prompt: string): string {
-  const s = currentSection();
-  const def = s?.type === "commit" ? String(s.value) : undefined;
-  const log = gitLines(["log", "--format=%h %s", "-n100"]);
-  const answer = e8.completingRead(def ? `${prompt} (default ${def}): ` : `${prompt}: `, log, { default: def, history: "magit-revision-history" });
-  if (answer === "") e8.userError("Nothing selected");
-  return answer.split(" ")[0];
+  return magitReadBranchOrCommit(prompt);
 }
 
 /** A commit fixing up or squashing into a commit read, then rebasing them together if INSTANT, as magit-commit-fixup and its kin. */
@@ -1121,8 +1110,7 @@ const commitMenu = transientDefinePrefix("magit-commit", {
 // Push.
 
 const branchOrHead = (): string => currentBranch() ?? "HEAD";
-const pushRemoteOf = (branch?: string): string | undefined =>
-  branch ? (gitString(["config", `branch.${branch}.pushRemote`]) ?? gitString(["config", "remote.pushDefault"])) : undefined;
+const pushRemoteOf = (branch?: string): string | undefined => (branch ? magitGetPushRemote(branch) : undefined);
 
 /** Reads a remote, setting it as the branch's push remote, as magit-push-current-to-pushremote with no push remote does. */
 function ensurePushRemote(): string {
@@ -1370,10 +1358,7 @@ const fetchMenu = transientDefinePrefix("magit-fetch", {
 // Rebase, after magit-sequence.el and git-rebase.el.
 
 /** Whether a rebase is going on, stopped for something, as magit-rebase-in-progress-p. */
-function rebaseInProgress(): boolean {
-  const gitDir = gitString(["rev-parse", "--absolute-git-dir"]);
-  return gitDir !== undefined && (e8.fileExists(`${gitDir}/rebase-merge`) || e8.fileExists(`${gitDir}/rebase-apply`));
-}
+const rebaseInProgress = magitRebaseInProgressP;
 
 const rebaseArgs = (): string[] => transientArgs("magit-rebase");
 
@@ -2142,7 +2127,7 @@ const gitInit = e8.defineCommand({
   doc: "Create a Git repository in a directory read.",
   run: () => {
     const dir = e8.readFileName("Create repository in: ", { dir: String(e8.variable("default-directory")) });
-    e8.callProcess([git(), "init", e8.expandFileName(dir)]);
+    e8.callProcess([magitGitExecutable(), "init", e8.expandFileName(dir)]);
     e8.letBind({ "default-directory": e8.fileNameAsDirectory(e8.expandFileName(dir)) }, () => e8.call(magitStatus));
   },
 });
@@ -2152,7 +2137,7 @@ const gitClone = e8.defineCommand({
   run: () => {
     const url = e8.readString("Clone repository: ");
     const dir = e8.readFileName("Clone to: ", { dir: String(e8.variable("default-directory")), initial: url.replace(/\.git$/, "").replace(/.*[/:]/, "") });
-    const r = e8.callProcess([git(), "clone", url, e8.expandFileName(dir)]);
+    const r = e8.callProcess([magitGitExecutable(), "clone", url, e8.expandFileName(dir)]);
     if (r.exit !== 0) e8.userError(r.output.trim());
     e8.letBind({ "default-directory": e8.fileNameAsDirectory(e8.expandFileName(dir)) }, () => e8.call(magitStatus));
   },

@@ -7,7 +7,7 @@ Sizes are the Lisp ported, from `wc -l` of Magit 4.4.0's `lisp/`; the port is ab
 | Step | What | Lisp | State |
 | --- | --- | --- | --- |
 | 0 | The oracle records buffers, not only menus | | done: 27 cases, 4 matching |
-| 1 | The git layer, after magit-git.el and magit-base.el | 4,100 | not started |
+| 1 | The git layer, after magit-git.el and magit-base.el | 4,100 | done: magit-git.ts, magit-base.ts |
 | 2 | Processes: sentinels, the process buffer, prompts, errors | 1,400 | not started |
 | 3 | Sections complete, after magit-section.el | 2,700 | not started |
 | 4 | Diffs complete, after magit-diff.el | 3,700 | not started |
