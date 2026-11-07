@@ -782,14 +782,14 @@ export const magitReverseInIndexCommand = e8.defineCommand({
 // Smerge support.
 
 /** A conflict: where it starts and ends, and its upper, base and lower versions, as smerge-match-conflict's match data. */
-interface Conflict {
+export interface Conflict {
   start: number;
   end: number;
   versions: ([number, number] | undefined)[];
 }
 
 /** The conflict around POS in the current buffer, as smerge-match-conflict. */
-function smergeMatchConflict(pos: number): Conflict {
+export function smergeMatchConflict(pos: number): Conflict {
   const fail = (): never => e8.userError("Point not in conflict region");
   const bol = (p: number): number => e8.lineBeginningPosition(p);
   const next = (p: number): number => Math.min(e8.lineEndPosition(p) + 1, e8.pointMax());
@@ -831,7 +831,7 @@ function smergeMatchConflict(pos: number): Conflict {
 }
 
 /** Keeps version N of conflict C, as smerge-keep-n. */
-function smergeKeepN(c: Conflict, n: number): void {
+export function smergeKeepN(c: Conflict, n: number): void {
   const [b, e] = c.versions[n]!;
   e8.deleteRegion(e, c.end);
   e8.deleteRegion(c.start, b);
