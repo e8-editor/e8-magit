@@ -59,7 +59,6 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - **The log** is a line a commit, with no graph and no margin. The log menu's limiting, simplification and ordering options change which commits it lists; its formatting switches draw nothing, and showing diffs or diffstats in the log does not work.
 - **Diff options** apply to a range, two paths and the worktree, not to the status buffer or dwim, staged and unstaged diffs; there is no word-diff, and no refining of hunks.
 - **The status buffer** does not show a rebase or merge going on, or the files in conflict, though the rebase menu offers to continue one.
-- **Push, pull and fetch** run without waiting and cannot ask for credentials: use an SSH agent or a credential helper.
 - Only programs E8 starts can use E8 as their editor (see e8-with-editor).
 
 ## Credit
