@@ -57,6 +57,8 @@ export function magitWithRefreshCache<T>(body: () => T): T {
 let lastRefreshCache = { hits: 0, misses: 0 };
 /** The hits and misses of the last refresh's cache. */
 export const magitRefreshCacheStats = (): { hits: number; misses: number } => lastRefreshCache;
+/** The hits and misses of the refresh going on, or of the last one. */
+export const magitRefreshCacheCounts = (): { hits: number; misses: number } => (refreshCache ? { hits: refreshCache.hits, misses: refreshCache.misses } : lastRefreshCache);
 
 /** BODY's value, cached by KEY while a refresh cache is active, as magit--with-refresh-cache. */
 export function magitWithCache<T>(key: string, body: () => T): T {

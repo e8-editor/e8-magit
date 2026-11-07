@@ -71,6 +71,30 @@ export function magitCompletingRead(prompt: string, collection: Iterable<string>
   return reply;
 }
 
+/**
+ * Reads several of TABLE, separated by commas, as
+ * magit-completing-read-multiple: each part after the last comma
+ * completes against TABLE, which keeps its order. Gives the parts, or
+ * with NO-SPLIT the input as it was typed.
+ */
+export function magitCompletingReadMultiple(prompt: string, table: Iterable<string>, options: { initialInput?: string; history?: string; def?: string; noSplit?: boolean; requireMatch?: boolean } = {}): string[] {
+  const choices = Array.from(table);
+  if (options.def !== undefined && !choices.includes(options.def)) choices.unshift(options.def);
+  const separator = /[ \t]*,[ \t]*/;
+  // Completes the last part, keeping those before it, as completing-read-multiple's table does.
+  const complete = (input: string): string[] => {
+    const before = /^(.*,[ \t]*)/s.exec(input)?.[1] ?? "";
+    return choices.map((c) => before + c);
+  };
+  const reply = e8.completingRead(prompt, complete, { initial: options.initialInput, history: options.history, default: options.def });
+  if (options.noSplit) return [reply];
+  const items = reply.split(separator).filter((part) => part !== "");
+  // Empty input is the default, if any.
+  if (items.length === 0 && options.def !== undefined) return [options.def];
+  if (options.requireMatch) for (const item of items) if (!choices.includes(item)) e8.userError(`No match for ${item}`);
+  return items;
+}
+
 /** Reads a string, trimmed, as magit-read-string: empty input is the default, or an error without one. */
 export function magitReadString(prompt: string, initialInput?: string, history?: string, def?: string, noWhitespace = false): string {
   let reply = e8.readString(magitFormatPrompt(prompt, def), { initial: initialInput, history, default: def }).trim();
@@ -132,22 +156,6 @@ export function magitReadCharCase<T>(prompt: string, verbose: boolean, clauses: 
   return clauses.find((cl) => cl[0] === c)![2];
 }
 
-/**
- * Reads one or more of COLLECTION, separated by commas, as
- * magit-completing-read-multiple: empty input is the default, if any.
- * E8 has no completing-read-multiple, so the minibuffer completes the
- * input as a whole.
- */
-export function magitCompletingReadMultiple(prompt: string, collection: string[], requireMatch = false, def?: string): string[] {
-  const choices = def !== undefined && !collection.includes(def) ? [def, ...collection] : collection;
-  const reply = e8.completingRead(prompt, choices, { requireMatch: false, default: def });
-  const items = (reply ?? "").split(/[ \t]*,[ \t]*/).filter((x) => x !== "");
-  if (items.length === 0 && def !== undefined) return [def];
-  if (requireMatch) for (const item of items) if (!choices.includes(item)) e8.userError(`No match for ${item}`);
-  return items;
-}
-
-/** Whether the prefix argument was given, as current-prefix-arg in a command. */
 export const prefixArgP = (): boolean => truthy(e8.prefixArg());
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

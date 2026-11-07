@@ -37,6 +37,7 @@ import {
   type GitArg,
 } from "magit-git";
 import { magitCallGit, magitRunGit, magitRunGitWithInput } from "magit-process";
+import { magitWipCommitAfterApply, magitWipCommitBeforeChange } from "magit-wip";
 import { magitRefresh } from "magit-mode";
 import {
   magitDiffCombinedP,
@@ -195,12 +196,19 @@ export function magitApplyRegion(hunk: Section, ...args: string[]): void {
 }
 
 /** Runs git apply with ARGS on PATCH, from SECTIONS' diff, then refreshes, as magit-apply-patch. */
-export function magitApplyPatch(_sections: Section | Section[], args: GitArg[], patch: string): void {
+export function magitApplyPatch(sections: Section | Section[], args: GitArg[], patch: string): void {
+  const files = [...new Set((Array.isArray(sections) ? sections : [sections]).map((s) => sectionFile(s)))];
+  const command = /^magit-([^-]+)/.exec(String(e8.variable("this-command") ?? ""))?.[1] ?? "apply";
   const context = magitDiffGetContext();
   const ignoreContext = magitDiffIgnoreAnySpaceP();
   if (!magitDiffContextP()) e8.userError("Not enough context to apply patch.  Increase the context");
+  const inhibit = truthy(e8.variable("magit-inhibit-refresh"));
+  if (!inhibit) magitWipCommitBeforeChange(files, ` before ${command}`);
   e8.letBind({ "magit-inhibit-refresh": true }, () => magitRunGitWithInput(patch, "apply", args, "-p0", ignoreContext ? "-C0" : `-C${context}`, "--ignore-space-change", "-"));
-  magitRefresh();
+  if (!inhibit) {
+    magitWipCommitAfterApply(files, ` after ${command}`);
+    magitRefresh();
+  }
 }
 
 /**
@@ -308,7 +316,7 @@ export const magitStageFilesCommand = e8.defineCommand({
   run: (force: e8.Value) => {
     const f = truthy(force);
     const choices = f ? magitIgnoredFiles() : [...magitUnstagedFiles(), ...magitUntrackedFiles()];
-    magitStageFiles(magitCompletingReadMultiple(f ? "Stage ignored file,s: " : "Stage file,s: ", choices, true, defaultFile(choices)), f);
+    magitStageFiles(magitCompletingReadMultiple(f ? "Stage ignored file,s: " : "Stage file,s: ", choices, { requireMatch: true, def: defaultFile(choices) }), f);
   },
 });
 
@@ -332,7 +340,9 @@ export const magitStageModifiedCommand = e8.defineCommand({
 
 /** Runs git add with ARG on FILES, or on everything, as magit-stage-1. */
 export function magitStage1(arg: string | undefined, files: string[] = []): void {
+  magitWipCommitBeforeChange(files, " before stage");
   magitRunGit("add", arg, files.length > 0 ? ["--", ...files] : ".");
+  magitWipCommitAfterApply(files, " after stage");
 }
 
 /**
@@ -351,7 +361,9 @@ export function magitStageUntracked(intent = false): void {
     const repo = !e8.fileSymlinkP(path.replace(/\/$/, "")) && e8.fileDirectoryP(path) && e8.fileExistsP(e8.expandFileName(".git", path));
     if (!repo) plain.push(file);
   }
+  magitWipCommitBeforeChange(files, " before stage");
   if (plain.length > 0) magitRunGit("add", intent ? "--intent-to-add" : undefined, "--", plain);
+  magitWipCommitAfterApply(files, " after stage");
 }
 
 e8.defineVariable({
@@ -408,14 +420,16 @@ export const magitUnstageFilesCommand = e8.defineCommand({
   doc: "Read one or more files and unstage all changes to those files.",
   run: () => {
     const choices = magitStagedFiles();
-    magitUnstageFiles(magitCompletingReadMultiple("Unstage file,s: ", choices, true, defaultFile(choices)));
+    magitUnstageFiles(magitCompletingReadMultiple("Unstage file,s: ", choices, { requireMatch: true, def: defaultFile(choices) }));
   },
 });
 
 /** Unstages FILES: git rm --cached before the first commit, else git reset, as magit-unstage-1. */
 export function magitUnstage1(files: string[]): void {
+  magitWipCommitBeforeChange(files, " before unstage");
   if (magitNoCommitP()) magitRunGit("rm", "--cached", "--", files);
   else magitRunGit("reset", "HEAD", "--", files);
+  magitWipCommitAfterApply(files, " after unstage");
 }
 
 /** Unstages those of FILES added with intent to add, as magit-unstage-intent. */
@@ -430,7 +444,9 @@ function magitUnstageIntent(files: string[]): void {
 export function magitUnstageAll(): void {
   if (!magitAnythingStagedP()) e8.userError("Nothing to unstage");
   if (magitAnythingUnstagedP() || magitUntrackedFiles().length > 0) magitConfirm("unstage-all-changes");
+  magitWipCommitBeforeChange(undefined, " before unstage");
   magitRunGit("reset", "HEAD", "--", (e8.variable("magit-buffer-diff-files") as string[] | null) ?? []);
+  magitWipCommitAfterApply(undefined, " after unstage");
 }
 
 export const magitUnstageAllCommand = e8.defineCommand({ name: "magit-unstage-all", doc: "Remove all changes from the staging area.", run: () => magitUnstageAll() });
@@ -561,11 +577,13 @@ export function magitDiscardFiles(sections: Section[]): void {
   }
   try {
     e8.letBind({ "magit-inhibit-refresh": true }, () => {
+      magitWipCommitBeforeChange(files, " before discard");
       if (resolve.length > 0) magitDiscardFilesResolve(resolve);
       if (resurrect.length > 0) magitDiscardFilesResurrect(resurrect);
       if (del.length > 0) magitDiscardFilesDelete(del, status);
       if (rename.length > 0) magitDiscardFilesRename(rename, status);
       if (discard.length > 0 || discardNew.length > 0) magitDiscardFilesDiscard(discard, discardNew);
+      magitWipCommitAfterApply(files, " after discard");
     });
   } finally {
     magitRefresh();

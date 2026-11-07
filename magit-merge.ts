@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Merging, after magit-merge.el: the status buffer's section for a merge
-// going on, with the commits being merged. The commands are step 8's.
+// going on, with the commits being merged, and aborting it
+// (magit-merge-abort). The other commands are step 8's, in magit.ts.
 //
 // Copyright (C) 2008-2025 The Magit Project Contributors
 // Copyright (C) 2026 The E8 contributors
@@ -12,9 +13,9 @@
 // option) any later version.
 
 import { insertHeading, insertSection } from "magit-section";
-import { magitFileStatus, magitGetShortname, magitGitString, magitMergeInProgressP, magitTrackedFiles, magitUnmergedFiles, magitCurrentFile } from "magit-git";
-import { magitCompletingRead, magitReadCharCase } from "magit-base";
-import { magitCallGit, magitRunGit } from "magit-process";
+import { magitFileStatus, magitGetShortname, magitGitdir, magitGitString, magitMergeInProgressP, magitTrackedFiles, magitUnmergedFiles, magitCurrentFile } from "magit-git";
+import { magitCompletingRead, magitConfirm, magitReadCharCase } from "magit-base";
+import { magitCallGit, magitRunGit, magitRunGitAsync } from "magit-process";
 import { magitInsertLog } from "magit-log";
 import { magitFileLines } from "magit-sequence";
 import { truthy } from "subr";
@@ -68,5 +69,15 @@ export const magitCheckoutStageCommand = e8.defineCommand({
     if (magitUnmergedFiles().includes(file)) magitCheckoutStage(file, magitCheckoutReadStage(file));
     else if (e8.yesOrNoP(`Restore conflicts in ${file}? `)) magitCheckoutStage(file, "--merge");
     else e8.userError("Quit");
+  },
+});
+
+export const magitMergeAbort = e8.defineCommand({
+  name: "magit-merge-abort",
+  doc: "Abort the current merge operation.\n\n(git merge --abort)",
+  run: () => {
+    if (!e8.fileExistsP(e8.expandFileName("MERGE_HEAD", magitGitdir()))) e8.userError("No merge in progress");
+    magitConfirm("abort-merge");
+    magitRunGitAsync("merge", "--abort");
   },
 });

@@ -20,7 +20,7 @@ Sizes are the Lisp ported, from `wc -l` of Magit 4.4.0's `lisp/`; the port is ab
 | 11 | Files: file-dispatch, blobs, tracked files, file logs | 1,200 | done: magit-files.ts; magit-edit-line-commit moves to step 12, as it needs blame |
 | 12 | Blame | 1,000 | done: magit-blame.ts, with magit-edit-line-commit and magit-diff-edit-hunk-commit; each chunk's overlays in all four styles, removal and reverse match Magit's (test/oracle/blame.json) |
 | 13 | Applying from elsewhere, conflicts, the rest of magit-apply.el | 800 | done: magit-apply.ts, staging, unstaging and discarding moved there from magit.ts; smerge's keep rules ported in it, as E8 has no smerge-mode; `x` and `magit-checkout-stage` beside |
-| 14 | Extras: wip, autorevert, bookmarks, repositories, sparse checkout, info | 2,100 | not started |
+| 14 | Extras: wip, autorevert, bookmarks, repositories, sparse checkout, info | 2,100 | done: magit-extras.ts, magit-dired.ts, magit-wip.ts, magit-autorevert.ts, magit-bookmark.ts (waiting on E8 bookmark records), magit-repos.ts, magit-sparse-checkout.ts, display and refresh in magit-mode.ts |
 | 15 | Ediff: an `e8-ediff` package, then magit-ediff.el | 600 + ediff | not started |
 | 16 | The parity audit: every command, option, face and key | | not started |
 
