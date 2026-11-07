@@ -86,6 +86,12 @@ import { magitTag } from "magit-tag";
 import { magitBisect } from "magit-bisect";
 import { magitShowRefs } from "magit-refs";
 import { magitFileCheckout, magitFileRename, magitFileUntrack } from "magit-files";
+import { magitGitignore } from "magit-gitignore";
+import { magitNotes } from "magit-notes";
+import { magitSubtree } from "magit-subtree";
+import { magitSubmodule } from "magit-submodule";
+import { magitPatch } from "magit-patch";
+import { magitWorktree } from "magit-worktree";
 import { magitRemote } from "magit-remote";
 import { magitClone } from "magit-clone";
 import { magitGitMergetool, magitRunGitGui, magitRunGitk, magitRunGitkAll, magitRunGitkBranches } from "magit-extras";
@@ -1354,26 +1360,7 @@ const stashMenu = transientDefinePrefix("magit-stash", {
 
 // The other menus and commands the dispatch menu names.
 
-const gitignore = e8.defineCommand({
-  name: "magit-gitignore-in-topdir",
-  doc: "Add a file or pattern to the .gitignore at the top of the repository.",
-  run: () => {
-    const s = currentSection();
-    const def = s?.type === "file" ? (s.value as FileValue).file : undefined;
-    const pattern = e8.readString(def ? `File or pattern to ignore (default ${def}): ` : "File or pattern to ignore: ", { default: def });
-    if (pattern === "") e8.userError("Nothing to ignore");
-    const file = `${repo()}.gitignore`;
-    const old = e8.fileExists(file) ? e8.readTextFile(file) : "";
-    e8.writeTextFile(file, `${old}${old && !old.endsWith("\n") ? "\n" : ""}${pattern}\n`);
-    refreshAll();
-  },
-});
 const cherries = "magit-cherry";
-const formatPatches = e8.defineCommand({
-  name: "magit-format-patch",
-  doc: "Write the commit at point, or one read, as a patch file.",
-  run: () => runGit(["format-patch", "-1", readCommit("Format patch for")]) as unknown as void,
-});
 const jumpToSection = e8.defineCommand({
   name: "magit-status-jump",
   doc: "Jump to a section of the status buffer, chosen by its heading.",
@@ -1480,7 +1467,7 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
         },
         {
           items: [
-            ["i", "Ignore", gitignore],
+            ["i", "Ignore", magitGitignore],
             ["I", "Init", magitInitCommand],
             ["j", "Jump to section", jumpToSection],
             ["J", "Display buffer", displayRepositoryBuffer],
@@ -1488,8 +1475,8 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
             ["L", "Log (change)", logMenu],
             ["m", "Merge", mergeMenu],
             ["M", "Remote", magitRemote],
-            ["o", "Submodule", notYet("magit-submodule", "Submodules")],
-            ["O", "Subtree", notYet("magit-subtree", "Subtrees")],
+            ["o", "Submodule", magitSubmodule],
+            ["O", "Subtree", magitSubtree],
             ["P", "Push", pushMenu],
             ["Q", "Command", magitGitCommand],
           ],
@@ -1498,15 +1485,15 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
           items: [
             ["r", "Rebase", magitRebase],
             ["t", "Tag", magitTag],
-            ["T", "Note", notYet("magit-notes", "Notes")],
+            ["T", "Note", magitNotes],
             ["V", "Revert", magitRevert],
             ["w", "Apply patches", magitAm],
-            ["W", "Format patches", formatPatches],
+            ["W", "Format patches", magitPatch],
             ["X", "Reset", resetMenu],
             ["y", "Show Refs", magitShowRefs],
             ["Y", "Cherries", cherries],
             ["z", "Stash", stashMenu],
-            ["Z", "Worktree", notYet("magit-worktree", "Worktrees")],
+            ["Z", "Worktree", magitWorktree],
             ["!", "Run", magitRun],
           ],
         },
@@ -1571,6 +1558,12 @@ const bindings: [string, e8.DefinedCommand | string][] = [
   ["y", magitShowRefs],
   ["K", magitFileUntrack],
   ["R", magitFileRename],
+  ["i", magitGitignore],
+  ["T", magitNotes],
+  ["O", magitSubtree],
+  ["o", magitSubmodule],
+  ["W", magitPatch],
+  ["Z", magitWorktree],
   ["!", magitRun],
   ["l", logMenu],
   ["d", diffMenu],
