@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Merging, after magit-merge.el: the status buffer's section for a merge
-// going on, with the commits being merged. The commands are step 8's.
+// going on, with the commits being merged, and aborting it
+// (magit-merge-abort). The other commands are step 8's, in magit.ts.
 //
 // Copyright (C) 2008-2025 The Magit Project Contributors
 // Copyright (C) 2026 The E8 contributors
@@ -12,7 +13,9 @@
 // option) any later version.
 
 import { insertHeading, insertSection } from "magit-section";
-import { magitGetShortname, magitGitString, magitMergeInProgressP } from "magit-git";
+import { magitConfirm } from "magit-base";
+import { magitGetShortname, magitGitdir, magitGitString, magitMergeInProgressP } from "magit-git";
+import { magitRunGitAsync } from "magit-process";
 import { magitInsertLog } from "magit-log";
 import { magitFileLines } from "magit-sequence";
 
@@ -34,3 +37,13 @@ export function magitInsertMergeLog(): void {
     magitInsertLog(range, args.includes("--decorate=full") ? args : ["--decorate=full", ...args]);
   }, "magit-insert-merge-log");
 }
+
+export const magitMergeAbort = e8.defineCommand({
+  name: "magit-merge-abort",
+  doc: "Abort the current merge operation.\n\n(git merge --abort)",
+  run: () => {
+    if (!e8.fileExistsP(e8.expandFileName("MERGE_HEAD", magitGitdir()))) e8.userError("No merge in progress");
+    magitConfirm("abort-merge");
+    magitRunGitAsync("merge", "--abort");
+  },
+});

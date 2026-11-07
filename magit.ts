@@ -94,7 +94,7 @@ import { magitPatch } from "magit-patch";
 import { magitWorktree } from "magit-worktree";
 import { magitRemote } from "magit-remote";
 import { magitClone } from "magit-clone";
-import { magitGitMergetool, magitRunGitGui, magitRunGitk, magitRunGitkAll, magitRunGitkBranches } from "magit-extras";
+import { magitGitMergetool, magitPopRevisionStackCommand, magitRunGitGui, magitRunGitk, magitRunGitkAll, magitRunGitkBranches } from "magit-extras";
 import { magitProcessBuffer, magitProcessBufferCommand, magitRunGit, magitRunGitWithInput, magitStartGitWith, magitStartProcess } from "magit-process";
 
 // Faces.
@@ -397,6 +397,8 @@ export const gitCommitMode = e8.defineMajorMode({
     e8.addHook("jit-lock-functions", fontifyCommit, { local: true });
   },
 });
+
+e8.defineKey("git-commit-mode-map", "C-c C-w", magitPopRevisionStackCommand);
 
 const commitArgs = (): string[] => transientArgs("magit-commit");
 

@@ -64,12 +64,14 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - **Worktrees** (`Z`): check out, branch, move, delete, visit, and their sections. **Submodules** (`o`): add, register, populate, update, synchronize, unpopulate, remove, list, and the module sections. **Subtrees** (`O`): import (add, merge, pull) and export (push, split).
 - **Files** (`C-c M-g` in a file's buffer): stage, unstage, untrack, rename, delete and check out the file, diff, log and trace it, and visit it at a revision (`magit-find-file`), in the index, or step through its revisions with `n` and `p` in `magit-blob-mode`; `magit-update-index` writes the index's version back; `K` and `R` untrack and rename in Magit buffers.
 - From the dispatch menu, cherries, one command.
+- **Extras** (magit-extras.el): `C-w` (`magit-copy-section-value`) copies the value of the section at point, a commit's, branch's or tag's revision going on the revision stack too (with a prefix argument, a branch's name; with a region in a hunk, only its added or removed lines); `M-w` (`magit-copy-buffer-revision`) the revision the buffer shows; `C-c C-w` in a commit message (`magit-pop-revision-stack`) inserts the last revision saved, as `magit-pop-revision-stack-format` says. `magit-abort-dwim` aborts the merge, rebase, git am, cherry-pick, revert or bisect going on; `magit-reshelve-since` (`r t` at level 6) changes the dates of the commits since one selected; `magit-clean` removes untracked files; `magit-project-status` is `m` in `C-x p` and `C-x p p`; `magit-run-git-gui-blame`; `magit-display-repository-buffer` and `magit-switch-to-repository-buffer`; and in Magit's buffers `next-line`, `previous-line` and `back-to-indentation` are Magit's, selecting one line of a hunk with the first shifted move.
 
 ## What is missing
 
 - **Not there at all**: blame; ediff; applying or reversing a change from elsewhere (`a`, `v`). Their keys in the menus say so.
 - Suffixes Magit puts above level 4 (signing, `--exec`, a rebase's strategy, some of clone's) are left out of the menus until E8's transient has levels (E8 0.5).
 - Only programs E8 starts can use E8 as their editor (see e8-with-editor).
+- `magit-generate-changelog` and `magit-add-change-log-entry` (`C-x a`, `C-x 4 a` on a hunk): E8 has no add-log.el or `diff-add-log-current-defuns` for them to build on.
 
 ## Credit
 
