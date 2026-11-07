@@ -131,7 +131,8 @@ ertDeftest("magit-committing-writes-the-message-in-a-buffer", () => {
     settle(() => e8.bufferName() === "COMMIT_EDITMSG");
     shouldEqual(e8.bufferName(), "COMMIT_EDITMSG");
     const template = e8.bufferText();
-    should(template.startsWith("\n# Please enter the commit message for your changes."), template);
+    // git-commit-ensure-comment-gap puts an empty line before the comments.
+    should(template.startsWith("\n\n# Please enter the commit message for your changes."), template);
     should(template.includes("#\tmodified:   b.txt"), template);
     e8.executeKbdMacro(`${typed("More b")} C-c C-c`);
     settle(() => git(dir, "log", "-1", "--format=%s") === "More b\n");
