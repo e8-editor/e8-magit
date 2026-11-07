@@ -1,0 +1,22 @@
+{
+  "buffer": "magit-revision: repo",
+  "point": 1,
+  "text": "main e6b47a815e46e9a5fd21e75cb4c4aee8caa0b923\nAuthor:     Tester <t@example.com>\nAuthorDate: Thu Jan 1 12:05:00 2026 +0000\nCommit:     Tester <t@example.com>\nCommitDate: Thu Jan 1 12:05:00 2026 +0000\n\nParent:     919904d Add b\nMerged:     feature main\nContained:  main\nFollows:    v0.1 (3)\n\nLocal commit\n\n1 file changed, 1 insertion(+)\nl.txt | 1 +\n\nnew file   l.txt\n@@ -0,0 +1 @@\n+local\n\n",
+  "faces": [
+    "1:0-4 magit-branch-current",
+    "1:5-45 magit-hash",
+    "7:12-19 magit-hash",
+    "8:12-19 magit-branch-local",
+    "8:20-24 magit-branch-local",
+    "9:12-16 magit-branch-local",
+    "10:12-16 magit-tag",
+    "10:18-19 magit-branch-local",
+    "12:0-12 magit-diff-revision-summary",
+    "14:0-30 magit-diff-file-heading",
+    "15:0-5 magit-filename",
+    "15:10-11 magit-diffstat-added",
+    "17:0-16 magit-diff-file-heading",
+    "18:0-13 magit-diff-hunk-heading",
+    "19:0-6 magit-diff-added"
+  ]
+}

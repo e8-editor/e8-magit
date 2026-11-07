@@ -15,7 +15,7 @@
 // Free Software Foundation, either version 3 of the License, or (at your
 // option) any later version.
 
-import { currentSection, magitGetSection, magitSectionIdent, magitSectionMode } from "magit-section";
+import { currentSection, magitGetSection, magitSectionIdent, magitSectionMode, magitSectionUpdateHighlight } from "magit-section";
 import { PerBuffer, truthy } from "subr";
 import { magitToplevel, magitToplevelOrError, magitWithRefreshCache } from "magit-git";
 
@@ -33,6 +33,22 @@ e8.defineVariable({ name: "magit-display-buffer-noselect", doc: "Whether to disp
 e8.defineVariable({ name: "magit-refresh-verbose", doc: "Whether to say how long refreshing took.", value: false });
 e8.defineVariable({ name: "magit-inhibit-refresh", doc: "Whether to not refresh Magit buffers after git runs.", value: false });
 e8.defineVariable({ name: "magit-buffer-name-format", doc: "The format of Magit buffers' names: %M the mode's name without -mode, %m with it, %t the repository's directory name.", value: "%M%v: %t" });
+for (const [name, doc] of [
+  ["magit-buffer-range", "The range a diff or log buffer shows."],
+  ["magit-buffer-range-hashed", "The range a diff buffer shows, with hashes for its ends."],
+  ["magit-buffer-typearg", "What a diff buffer compares with: --cached, --no-index, or nil for the working tree."],
+  ["magit-buffer-diff-type", "What a diff buffer shows: staged, unstaged, committed or undefined."],
+  ["magit-buffer-diff-args", "The arguments of git diff for a diff buffer."],
+  ["magit-buffer-diff-files", "The files a diff buffer is limited to."],
+  ["magit-buffer-revision", "The revision a revision or stash buffer shows."],
+  ["magit-buffer-revision-hash", "The hash of the revision a revision buffer shows."],
+  ["magit-buffer-refname", "The ref a blob buffer was visited from."],
+  ["magit-buffer-file-name", "The file a blob buffer shows."],
+  ["magit-buffer-log-args", "The arguments of git log for a log buffer."],
+  ["magit-buffer-log-files", "The files a log buffer is limited to."],
+  ["magit-buffer-revisions", "The revisions a log buffer shows."],
+] as const) e8.defineVariable({ name, doc, value: null });
+
 e8.defineHook("magit-pre-refresh-hook", "Hook run before refreshing in magit-refresh.");
 e8.defineHook("magit-post-refresh-hook", "Hook run after refreshing in magit-refresh.");
 e8.defineHook("magit-refresh-buffer-hook", "Normal hook for magit-refresh-buffer to run after refreshing.");
@@ -90,16 +106,21 @@ export const magitBufferInfo = (buffer: string | e8.Buffer = e8.currentBuffer())
  * REFRESH make its content, and shows it, as magit-setup-buffer: KIND
  * names what it shows, as Magit's modes do.
  */
-export function magitSetupBuffer(name: string, mode: e8.DefinedCommand | string, kind: string, refresh: () => void, select = true): string {
+export function magitSetupBuffer(name: string, mode: e8.DefinedCommand | string, kind: string, refresh: () => void, select = true, locals: { [variable: string]: e8.Value } = {}): string {
   const dir = magitToplevelOrError();
   const existed = e8.bufferLiveP(e8.getBuffer(name));
   e8.getBufferCreate(name);
   e8.withCurrentBuffer(name, () => {
-    if (!existed) {
+    if (!existed || String(e8.variable("major-mode")) !== String(mode)) {
       e8.call(mode as e8.DefinedCommand);
       e8.makeLocalVariable("default-directory");
       e8.setVariable("default-directory", dir);
-      e8.runHooks("magit-create-buffer-hook");
+      if (!existed) e8.runHooks("magit-create-buffer-hook");
+    }
+    // What the buffer shows, as magit-setup-buffer binds magit-buffer-range and the rest.
+    for (const [variable, value] of Object.entries(locals)) {
+      e8.makeLocalVariable(variable);
+      e8.setVariable(variable, value);
     }
     buffers.set(e8.currentBuffer(), { kind, refresh, dir });
   });
@@ -165,6 +186,7 @@ export function magitRefreshBuffer(): void {
     e8.gotoChar(Math.min(e8.lineStart(target) + column, e8.lineEnd(target)));
   } else e8.gotoChar(e8.lineStart(Math.min(line, e8.lineCount() - 1)));
   e8.setBufferModified(false);
+  magitSectionUpdateHighlight(true);
   e8.runHooks("magit-refresh-buffer-hook");
 }
 

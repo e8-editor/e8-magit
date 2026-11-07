@@ -49,7 +49,7 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - **Reset** (`X`): mixed, soft, hard, keep, the index or the worktree only, a branch, or a file.
 - **Stash** (`z`): both, the index, the worktree, or keeping the index; snapshots; apply, pop, drop, list, show, branch, and format a stash as a patch.
 - **Log** (`l`): the current branch, another, the related branches, local or all branches, all references; reflogs; shortlog. `RET` shows a commit, with its diff.
-- **Diff** (`d`): dwim, a range, two paths, unstaged, staged, the worktree, a commit, a stash.
+- **Diff** (`d`): dwim, a range, two paths, unstaged, staged, the worktree, a commit, a stash, each with a diffstat; `+`, `-` and `0` change the context, `j` jumps between the diffstat and the diff, `SPC` and `DEL` show the commit at point or scroll it, and with `magit-diff-refine-hunk` the words that changed are marked. The revision buffer shows a commit's refs, author, parents, the branches it is merged into and contained in, the tags around it, its message and notes, and a tag's message; the stash buffer a stash's unstaged, staged and untracked changes. `RET` on a hunk visits its line in the work tree or the blob.
 - From the dispatch menu, cherry-pick, revert, tag, ignore, init, clone, run a git command, refs, cherries, add a remote and format patches, one command each.
 
 ## What is missing
@@ -57,7 +57,6 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - **Not there at all**: blame; bisect; worktrees; submodules; subtrees; notes; ediff; applying patches (`w`, git am); applying or reversing a change from elsewhere (`a`, `v`); and `magit-file-dispatch`. Their keys in the menus say so.
 - **One command rather than a menu**: cherry-pick, revert, tag and remote, where Magit opens a menu of their own.
 - **The log** is a line a commit, with no graph and no margin. The log menu's limiting, simplification and ordering options change which commits it lists; its formatting switches draw nothing, and showing diffs or diffstats in the log does not work.
-- **Diff options** apply to a range, two paths and the worktree, not to the status buffer or dwim, staged and unstaged diffs; there is no word-diff, and no refining of hunks.
 - **The status buffer** does not show a rebase or merge going on, or the files in conflict, though the rebase menu offers to continue one.
 - Only programs E8 starts can use E8 as their editor (see e8-with-editor).
 

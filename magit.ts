@@ -66,6 +66,17 @@ import {
   magitSetupBuffer,
   magitStatusMode,
 } from "magit-mode";
+import {
+  magitDiffArguments,
+  magitDiffDwim,
+  magitDiffSetupBuffer,
+  magitInsertStagedChanges,
+  magitInsertUnstagedChanges,
+  magitShowCommit,
+  magitShowCommitRev,
+  magitStashShow,
+  type FileValue,
+} from "magit-diff";
 import { magitProcessBufferCommand, magitRunGit, magitRunGitWithInput, magitStartGitWith } from "magit-process";
 
 // Faces.
@@ -81,11 +92,6 @@ const faces: [string, string, e8.FaceAttributes, e8.FaceAttributes?, e8.FaceAttr
   ["magit-dimmed", "Face for text that shouldn't stand out.", {}, { foreground: "grey50" }, { foreground: "grey50" }],
   ["magit-log-author", "Face for the author part of the log output.", {}, { foreground: "firebrick" }, { foreground: "tomato" }],
   ["magit-log-date", "Face for the date part of the log output.", {}, { foreground: "grey30" }, { foreground: "grey80" }],
-  ["magit-diff-file-heading", "Face for diff file headings.", { extend: true, weight: "bold" }],
-  ["magit-diff-hunk-heading", "Face for diff hunk headings.", { extend: true }, { background: "grey90", foreground: "grey20" }, { background: "grey25", foreground: "grey95" }],
-  ["magit-diff-added", "Face for lines in a diff that have been added.", { extend: true }, { background: "#ddffdd", foreground: "#22aa22" }, { background: "#335533", foreground: "#ddffdd" }],
-  ["magit-diff-removed", "Face for lines in a diff that have been removed.", { extend: true }, { background: "#ffdddd", foreground: "#aa2222" }, { background: "#553333", foreground: "#ffdddd" }],
-  ["magit-diff-context", "Face for lines in a diff that are unchanged.", { extend: true }, { foreground: "grey50" }, { foreground: "grey70" }],
   ["magit-process-ok", "Face for zero exit-status.", { inherit: "magit-section-heading", foreground: "green" } as e8.FaceAttributes],
   ["magit-process-ng", "Face for non-zero exit-status.", { inherit: "magit-section-heading", foreground: "red" } as e8.FaceAttributes],
 ];
@@ -171,70 +177,6 @@ function insertHeaders(): void {
   }
 }
 
-/** A file's change as git diff --name-status words it, as Magit's file headings do: modified, new file, deleted, renamed. */
-const statusWords: { [k: string]: string } = { M: "modified", A: "new file", D: "deleted", R: "renamed", C: "copied", T: "new type", U: "unmerged" };
-
-/** A file's diff: its heading and hunks. */
-interface FileDiff {
-  file: string;
-  orig?: string;
-  status: string;
-  header: string[];
-  hunks: { heading: string; lines: string[] }[];
-}
-
-/** Parses git diff's output into files and hunks, as magit-diff-wash-diffs does. */
-function parseDiff(output: string): FileDiff[] {
-  const files: FileDiff[] = [];
-  let cur: FileDiff | undefined;
-  let hunk: { heading: string; lines: string[] } | undefined;
-  for (const line of output.split("\n")) {
-    if (line.startsWith("diff --git ")) {
-      const m = /^diff --git (?:a\/)?(.+?) (?:b\/)?(.+)$/.exec(line);
-      cur = { file: m?.[2] ?? line.slice(11), status: "modified", header: [line], hunks: [] };
-      files.push(cur);
-      hunk = undefined;
-    } else if (!cur) {
-      continue;
-    } else if (line.startsWith("@@")) {
-      hunk = { heading: line, lines: [] };
-      cur.hunks.push(hunk);
-    } else if (hunk) {
-      if (line !== "" || hunk.lines.length === 0 || true) hunk.lines.push(line);
-    } else {
-      cur.header.push(line);
-      if (line.startsWith("new file")) cur.status = "new file";
-      else if (line.startsWith("deleted file")) cur.status = "deleted";
-      else if (line.startsWith("rename from ")) {
-        cur.status = "renamed";
-        cur.orig = line.slice(12);
-      } else if (line.startsWith("Binary files")) cur.hunks = [];
-    }
-  }
-  // The newline that ends the output is no line of the last hunk.
-  for (const f of files) for (const h of f.hunks) while (h.lines.length > 0 && h.lines[h.lines.length - 1] === "") h.lines.pop();
-  return files;
-}
-
-/** Inserts the files of a diff, each hidden with its hunks, as magit-insert-diff and the washers do. */
-function insertFiles(diffs: FileDiff[], kind: "unstaged" | "staged" | "commit"): void {
-  for (const d of diffs) {
-    insertSection("file", { file: d.file, diff: d, kind }, kind !== "commit", () => {
-      const word = (statusWords[d.status[0]?.toUpperCase()] ?? d.status).padEnd(11);
-      insertHeading(face(`${word}${d.orig ? `${d.orig} -> ` : ""}${d.file}`, "magit-diff-file-heading"), "\n");
-      for (const h of d.hunks) {
-        insertSection("hunk", { file: d.file, diff: d, hunk: h, kind }, false, () => {
-          insertHeading(face(h.heading, "magit-diff-hunk-heading"), "\n");
-          for (const l of h.lines) {
-            const f = l.startsWith("+") ? "magit-diff-added" : l.startsWith("-") ? "magit-diff-removed" : "magit-diff-context";
-            e8.insert(face(`${l}\n`, f));
-          }
-        });
-      }
-    });
-  }
-}
-
 /** Whether HEAD names a commit yet. */
 const hasCommits = (): boolean => !magitNoCommitP();
 
@@ -252,22 +194,8 @@ function insertStatus(): void {
         e8.insert("\n");
       });
     }
-    const unstaged = parseDiff(gitOutput(["diff", "--no-ext-diff", "--no-prefix", "-p"]).output);
-    if (unstaged.length > 0) {
-      insertSection("unstaged", undefined, false, () => {
-        insertHeading(true, "Unstaged changes");
-        insertFiles(unstaged, "unstaged");
-        e8.insert("\n");
-      });
-    }
-    const staged = parseDiff(gitOutput(["diff", "--cached", "--no-ext-diff", "--no-prefix", "-p"]).output);
-    if (staged.length > 0) {
-      insertSection("staged", undefined, false, () => {
-        insertHeading(true, "Staged changes");
-        insertFiles(staged, "staged");
-        e8.insert("\n");
-      });
-    }
+    magitInsertUnstagedChanges();
+    magitInsertStagedChanges();
     const stashes = gitLines(["stash", "list", "--format=%gd%x00%gs"]);
     if (stashes.length > 0) {
       insertSection("stashes", undefined, true, () => {
@@ -336,13 +264,6 @@ const refreshBuffer = magitRefreshBuffer;
 const repoName = magitRepoName;
 
 // Applying: staging, unstaging and discarding.
-
-interface FileValue {
-  file: string;
-  kind: "untracked" | "unstaged" | "staged" | "commit";
-  diff?: FileDiff;
-  hunk?: { heading: string; lines: string[] };
-}
 
 /** The file or hunk at point, or the files of the section at point, as magit-apply's targets. */
 function targets(): { section: Section; values: FileValue[] } | undefined {
@@ -525,10 +446,10 @@ function editCommit(args: string[], amend = false): void {
 function showCommitDiff(): void {
   if (!/\/COMMIT_EDITMSG$/.test(e8.bufferFileName() ?? "")) return;
   const window = e8.selectedWindow();
-  const staged = amending ? gitOutput(["diff", "--no-prefix", "-p", "HEAD^", "--cached"]) : gitOutput(["diff", "--cached", "--no-prefix", "-p"]);
-  if (!staged.output.trim()) return;
-  commitDiff = setupBuffer(`magit-diff: ${repoName(repo())}`, magitDiffMode, "diff", () => insertRoot("diff", () => insertFiles(parseDiff(staged.output), "commit")), false);
-  e8.call("display-buffer", commitDiff);
+  const staged = amending ? gitOutput(["diff", "--quiet", "HEAD^", "--cached"]) : gitOutput(["diff", "--cached", "--quiet"]);
+  if (staged.exit === 0) return;
+  const [args] = magitDiffArguments();
+  commitDiff = e8.letBind({ "magit-display-buffer-noselect": true }, () => magitDiffSetupBuffer(amending ? "HEAD^" : undefined, "--cached", args, [], amending ? "committed" : "staged"));
   e8.selectWindow(window);
 }
 
@@ -838,59 +759,11 @@ const logOther = e8.defineCommand({
 });
 
 
-/** Shows a commit: its header and diff, as magit-show-commit and magit-revision-mode. */
-export function showCommit(rev: string): void {
-  const dir = repo();
-  setupBuffer(`magit-revision: ${repoName(dir)}`, magitRevisionMode, "revision", () => {
-    const meta = gitOutput(["show", "-s", "--format=%H%nAuthor:     %an <%ae>%nAuthorDate: %ad%nCommit:     %cn <%ce>%nCommitDate: %cd%n%n%B", rev]).output;
-    const diff = gitOutput(["show", "--format=", "--no-prefix", "-p", rev]).output;
-    insertRoot("revision", () => {
-      const [hash, ...rest] = meta.split("\n");
-      insertSection("headers", hash, false, () => {
-        insertHeading(face(hash, "magit-hash"), "\n");
-        e8.insert(`${rest.join("\n").replace(/\n+$/, "")}\n\n`);
-      });
-      insertFiles(parseDiff(diff), "commit");
-    });
-  });
-  e8.gotoChar(0);
-}
-
-const diffDwim = e8.defineCommand({
-  name: "magit-diff-dwim",
-  doc: "Show the changes in the working tree, unstaged and staged, or those of the commit at point.",
-  run: () => {
-    const s = currentSection();
-    if (s?.type === "commit") {
-      showCommit(String(s.value));
-      return;
-    }
-    const dir = repo();
-    const staged = s?.type === "staged" || (s?.value as FileValue | undefined)?.kind === "staged";
-    setupBuffer(`magit-diff: ${repoName(dir)}`, magitDiffMode, "diff", () =>
-      insertRoot("diff", () => insertFiles(parseDiff(gitOutput(staged ? ["diff", "--cached", "--no-prefix", "-p"] : ["diff", "--no-prefix", "-p"]).output), "commit")),
-    );
-    e8.gotoChar(0);
-  },
-});
-const diffStaged = e8.defineCommand({
-  name: "magit-diff-staged",
-  doc: "Show the changes between the index and HEAD.",
-  run: () => {
-    const dir = repo();
-    setupBuffer(`magit-diff: ${repoName(dir)}`, magitDiffMode, "diff", () => insertRoot("diff", () => insertFiles(parseDiff(gitOutput(["diff", "--cached", "--no-prefix", "-p"]).output), "commit")));
-    e8.gotoChar(0);
-  },
-});
-const diffUnstaged = e8.defineCommand({
-  name: "magit-diff-unstaged",
-  doc: "Show the changes between the working tree and the index.",
-  run: () => {
-    const dir = repo();
-    setupBuffer(`magit-diff: ${repoName(dir)}`, magitDiffMode, "diff", () => insertRoot("diff", () => insertFiles(parseDiff(gitOutput(["diff", "--no-prefix", "-p"]).output), "commit")));
-    e8.gotoChar(0);
-  },
-});
+/** Shows a commit in the revision buffer, as magit-show-commit. */
+export const showCommit = (rev: string): void => magitShowCommitRev(rev);
+const diffDwim = magitDiffDwim;
+const diffStaged = "magit-diff-staged";
+const diffUnstaged = "magit-diff-unstaged";
 
 // The process buffer.
 
@@ -1749,11 +1622,8 @@ const mergePreview = e8.defineCommand({
   doc: "Show the changes merging a branch would make.",
   run: () => {
     const branch = readBranch("Preview merge", [...localBranches().filter((b) => b !== currentBranch()), ...remoteBranches()]);
-    const dir = repo();
-    const base = gitString(["merge-base", "HEAD", branch]) ?? "HEAD";
-    const out = gitOutput(["diff", "--no-prefix", "-p", base, branch]).output;
-    setupBuffer(`magit-merge-preview: ${repoName(dir)}`, magitDiffMode, "diff", () => insertRoot("diff", () => insertFiles(parseDiff(out), "commit")));
-    e8.gotoChar(0);
+    const [args] = magitDiffArguments();
+    magitDiffSetupBuffer(`HEAD...${branch}`, undefined, args, [], "committed");
   },
 });
 
@@ -1807,22 +1677,11 @@ const resetMenu = transientDefinePrefix("magit-reset", {
 
 // Diff.
 
-const diffArgs = (): string[] => transientArgs("magit-diff").filter((a) => a !== "--stat" && !a.startsWith("--show-signature"));
-const diffBuffer = (args: string[]) => {
-  const dir = repo();
-  const out = gitOutput(["diff", "--no-prefix", "-p", ...diffArgs(), ...args]).output;
-  setupBuffer(`magit-diff: ${repoName(dir)}`, magitDiffMode, "diff", () => insertRoot("diff", () => insertFiles(parseDiff(out), "commit")));
-  e8.gotoChar(0);
-};
-const diffRange = e8.defineCommand({ name: "magit-diff-range", doc: "Show the differences between two commits, as A..B read.", run: () => diffBuffer([e8.readString("Diff for range: ", { default: "HEAD~..HEAD" }) || "HEAD~..HEAD"]) });
-const diffPaths = e8.defineCommand({
-  name: "magit-diff-paths",
-  doc: "Show the changes between two files.",
-  run: () => diffBuffer(["--no-index", e8.readFileName("First file: "), e8.readFileName("Second file: ")]),
-});
-const diffWorktree = e8.defineCommand({ name: "magit-diff-working-tree", doc: "Show the changes between the working tree and HEAD.", run: () => diffBuffer(["HEAD"]) });
-const showCommitCommand = e8.defineCommand({ name: "magit-show-commit", doc: "Show a commit read, or the one at point.", run: () => showCommit(readCommit("Show commit")) });
-const showStash = e8.defineCommand({ name: "magit-stash-show", doc: "Show a stash.", run: () => showCommit(stashAt("Show stash")) });
+const diffRange = "magit-diff-range";
+const diffPaths = "magit-diff-paths";
+const diffWorktree = "magit-diff-working-tree";
+const showCommitCommand = magitShowCommit;
+const showStash = magitStashShow;
 
 const diffMenu = transientDefinePrefix("magit-diff", {
   doc: "Show changes between different versions.",

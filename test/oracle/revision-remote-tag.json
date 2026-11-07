@@ -1,0 +1,22 @@
+{
+  "buffer": "magit-revision: repo",
+  "point": 1,
+  "text": "Tagger: Tester <t@example.com>\n\nVersion 0.1\n\n\nv0.1 408580fe6d999ac821a57c79e76d39bce0bdc80a\nAuthor:     Tester <t@example.com>\nAuthorDate: Thu Jan 1 12:01:00 2026 +0000\nCommit:     Tester <t@example.com>\nCommitDate: Thu Jan 1 12:01:00 2026 +0000\n\nContained:  feature main\nFollows:    v0.1 (0)\n\nFirst commit\n\n1 file changed, 1 insertion(+)\na.txt | 1 +\n\nnew file   a.txt\n@@ -0,0 +1 @@\n+one\n\n",
+  "faces": [
+    "1:0-30 magit-section-secondary-heading",
+    "3:0-11 magit-diff-revision-summary",
+    "6:0-4 magit-tag",
+    "6:5-45 magit-hash",
+    "12:12-19 magit-branch-local",
+    "12:20-24 magit-branch-local",
+    "13:12-16 magit-tag",
+    "13:18-19 magit-branch-local",
+    "15:0-12 magit-diff-revision-summary",
+    "17:0-30 magit-diff-file-heading",
+    "18:0-5 magit-filename",
+    "18:10-11 magit-diffstat-added",
+    "20:0-16 magit-diff-file-heading",
+    "21:0-13 magit-diff-hunk-heading",
+    "22:0-4 magit-diff-added"
+  ]
+}
