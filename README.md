@@ -29,8 +29,8 @@ E8 installs it at its newest version tag into `repos/` beside `init.ts`, with [e
 | `RET` | visit the file at point, on the hunk's line, or show the commit or stash at point |
 | `g`, `G` | refresh this buffer, or all of the repository's |
 | `$` | the git commands run and their output |
-| `q` | bury the buffer |
-| `h`, `?` | the dispatch menu |
+| `q` | bury the buffer, as `magit-bury-buffer-function` says; `C-u q` kills it, `C-u C-u q` kills all the repository's Magit buffers |
+| `h`, `?` | the dispatch menu, whose `h` opens the manual (`magit-info`) |
 | `c`, `b`, `P`, `F`, `f`, `m`, `r`, `X`, `z`, `l`, `d` | the commit, branch, push, pull, fetch, merge, rebase, reset, stash, log and diff menus |
 | `A`, `V`, `w` | the cherry-pick, revert and apply-patches (git am) menus |
 | `t`, `M`, `!`, `C`, `I`, `Q` | the tag, remote and run menus, clone, init, and a git command |
@@ -65,6 +65,9 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - **Files** (`C-c M-g` in a file's buffer): stage, unstage, untrack, rename, delete and check out the file, diff, log and trace it, and visit it at a revision (`magit-find-file`), in the index, or step through its revisions with `n` and `p` in `magit-blob-mode`; `magit-update-index` writes the index's version back; `K` and `R` untrack and rename in Magit buffers.
 - **Repositories** (`M-x magit-list-repositories`): the repositories `magit-repository-directories` names, found to the depth it gives, a line each with the columns of `magit-repolist-columns` (name, version, commits to pull and push, path; the branch, upstream, flags, stashes and branches columns are there to add), sorted by `magit-repolist-sort-key`; `RET` shows a repository's status, `m` and `u` mark and unmark, `f` fetches the marked ones, or all after asking, and `5` visits a file in each in a frame of its own.
 - **Sparse checkouts** (`M-x magit-sparse-checkout`, which Magit binds to no key either), in cone mode: enable (with `--sparse-index`), set or add the directories included, read with completion and separated by commas, reapply the rules, disable; `magit-sparse-checkout-insert-header` in `magit-status-headers-hook` says what the checkout includes.
+- **Showing and burying buffers**: `magit-display-buffer-function` is `magit-display-buffer-traditional` or any of Magit's alternatives (`-same-window-except-diff-v1`, `-fullframe-status-v1`, `-fullframe-status-topleft-v1`, `-fullcolumn-most-v1`), `display-buffer`, or a function of a config's; `magit-display-buffer-noselect`, and `magit-pre-display-buffer-hook` and `-post-display-buffer-hook` around it, saving the window configuration and noting a window made for Magit. `magit-bury-buffer-function` is `magit-mode-quit-window`, which deletes a window made for Magit with its last Magit buffer, `quit-window`, or `magit-restore-window-configuration`.
+- **Refreshing**: `magit-pre-refresh-hook` and `magit-post-refresh-hook` around `magit-refresh`, `magit-refresh-buffer-hook` after each buffer, `magit-refresh-status-buffer`, and `magit-refresh-verbose` (`M-x magit-toggle-verbose-refresh`) timing each buffer, hook function and refresh, with the refresh cache's hits.
+- **`magit-version`**: git describe of the package's own repository, as `e8.usePackage` installs it, else the version its `e8-package.json` gives; the message has Git's and E8's versions and the system, and goes into the kill ring, or with `C-u` into the buffer.
 - From the dispatch menu, cherries, one command.
 
 ## What is missing
@@ -73,6 +76,7 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - Suffixes Magit puts above level 4 (signing, `--exec`, a rebase's strategy, some of clone's) are left out of the menus until E8's transient has levels (E8 0.5).
 - Only programs E8 starts can use E8 as their editor (see e8-with-editor).
 - The repository list does not turn on `hl-line-mode`, which E8 lacks, nor give Imenu its entries.
+- `magit-info` (`h h`, `C-x i` in the dispatch menu) cannot show Magit's Info manual, as E8 has no Info reader: it opens the manual on the web, `magit-manual-url`, with `browse-url` if E8 has it or else the system's `open` or `xdg-open`, and says where it is. `magit-version` leaves Transient out, which ships with E8.
 
 ## Credit
 

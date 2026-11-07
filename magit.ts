@@ -53,11 +53,13 @@ import {
   magitToplevelOrError,
   magitUntrackedFiles,
   magitWithRefreshCache,
+  magitGitVersion,
 } from "magit-git";
 import {
   magitDiffMode,
   magitLogMode,
   magitMode,
+  magitModeBuryBuffer,
   magitRefreshAll,
   magitRefreshAllCommand,
   magitRefreshBuffer,
@@ -1393,7 +1395,96 @@ const sectionInfo = e8.defineCommand({
     e8.message(`(${chain.join(" ")}) [${s.start}-${s.end}]`);
   },
 });
-const help = e8.defineCommand({ name: "magit-info", doc: "Show what Magit's keys do.", run: () => e8.call("describe-mode") });
+// The manual and the version, after magit-mode.el's magit-info and magit.el's magit-version.
+
+e8.defineVariable({ name: "magit-manual-url", doc: "Where Magit's manual is on the web, which magit-info opens while E8 has no Info reader.", value: "https://magit.vc/manual/magit/" });
+
+/**
+ * Visits the Magit manual, as magit-info: in Info if E8 has an Info reader,
+ * else the manual on the web, with browse-url if there is one, else with
+ * the system's opener (open, xdg-open), saying where it is.
+ */
+export function magitInfo(): void {
+  if (e8.fboundp("info")) return void e8.funcall("info", "magit");
+  const url = String(e8.variable("magit-manual-url"));
+  if (e8.fboundp("browse-url")) return void e8.funcall("browse-url", url);
+  if (!truthy(e8.variable("noninteractive"))) {
+    const opener = e8.callProcess(["uname", "-s"]).output.trim() === "Darwin" ? "open" : "xdg-open";
+    e8.makeProcess({ name: "magit-info", command: [opener, url] });
+  }
+  e8.message(`The Magit manual is at ${url}`);
+}
+const help = e8.defineCommand({ name: "magit-info", doc: "Visit the Magit manual.", run: () => magitInfo() });
+
+/** The directory Magit's package was loaded from: the first in load-path holding magit.ts, as locate-library finds magit.el. */
+function magitPackageDirectory(): string | undefined {
+  const path = (e8.variable("load-path") as string[] | null) ?? [];
+  return path.map((d) => e8.fileNameAsDirectory(e8.expandFileName(String(d)))).find((d) => e8.fileExistsP(`${d}magit.ts`));
+}
+
+/** The system's type, as Emacs's system-type names it. */
+function systemType(): string {
+  const uname = e8.callProcess(["uname", "-s"]).output.trim();
+  return uname === "Darwin" ? "darwin" : uname === "Linux" ? "gnu/linux" : uname.toLowerCase();
+}
+
+/**
+ * The version of Magit in use, as magit-version: git describe in its
+ * package directory if that is Magit's repository, as a package installed
+ * from git is, else the version e8-package.json gives, else the version a
+ * directory named magit-VERSION says. Undefined, with a message, if none.
+ * With PRINT, also says the versions of Magit, Git and E8, and the system.
+ */
+export function magitVersion(print = false): string | undefined {
+  const dir = magitPackageDirectory();
+  let version: string | undefined;
+  if (dir) {
+    if (e8.fileExistsP(`${dir}.git`)) {
+      const r = e8.callProcess(["git", "describe", "--tags", "--dirty", "--always"], { directory: dir });
+      if (r.exit === 0) version = r.output.trim();
+    }
+    if (!version && e8.fileExistsP(`${dir}e8-package.json`)) {
+      try {
+        const v = (JSON.parse(e8.readTextFile(`${dir}e8-package.json`)) as { version?: unknown }).version;
+        if (typeof v === "string") version = v;
+      } catch {
+        // A manifest that does not parse has no version.
+      }
+    }
+    if (!version) version = /^(?:e8-)?magit-([0-9].*)$/.exec(e8.fileNameNondirectory(e8.directoryFileName(dir)))?.[1];
+  }
+  if (!version) {
+    if (e8.getenv("CI") !== "true") e8.message(`Cannot determine Magit's version ${JSON.stringify(dir ?? null)}`);
+    return undefined;
+  }
+  if (print) e8.message(magitVersionString(version));
+  return version;
+}
+
+/** What magit-version prints: the versions of Magit, Git and E8, and the system, as Magit's names Magit, Transient, Git and Emacs; Transient ships with E8. */
+const magitVersionString = (version: string): string => {
+  let git = "(unknown)";
+  try {
+    git = magitGitVersion();
+  } catch {
+    // No git.
+  }
+  return `Magit ${version}, Git ${git}, E8 ${String(e8.variable("e8-version"))}, ${systemType()}`;
+};
+
+export const magitVersionCommand = e8.defineCommand({
+  name: "magit-version",
+  doc: "Show the version of Magit currently in use, with the versions of Git and E8, and put it in the kill ring.  With a prefix argument insert it into the current buffer instead.",
+  params: [{ name: "here", kind: "prefix" }],
+  run: (here: e8.Value) => {
+    const version = magitVersion();
+    if (version === undefined) return;
+    const text = magitVersionString(version);
+    e8.killNew(text);
+    if (truthy(here)) e8.insert(text);
+    else e8.message(text);
+  },
+});
 
 // Running git and shell commands, after magit.el's magit-run.
 
@@ -1516,7 +1607,7 @@ const dispatch = transientDefinePrefix("magit-dispatch", {
           padKeys: true,
           items: [
             ["g", "Refresh current buffer", refreshCommand],
-            ["q", "Bury current buffer", "quit-window"],
+            ["q", "Bury current buffer", magitModeBuryBuffer],
             ["<tab>", "Toggle section at point", "magit-section-toggle"],
             ["<return>", "Visit thing at point", magitVisitThing],
           ],
@@ -1571,7 +1662,7 @@ const bindings: [string, e8.DefinedCommand | string][] = [
   ["d", diffMenu],
   ["h", dispatch],
   ["?", dispatch],
-  ["q", "quit-window"],
+  ["q", magitModeBuryBuffer],
 ];
 for (const [key, command] of bindings) e8.defineKey("magit-mode-map", key, command as e8.DefinedCommand);
 
