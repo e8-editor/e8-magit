@@ -33,6 +33,7 @@ E8 installs it at its newest version tag into `repos/` beside `init.ts`, with [e
 | `h`, `?` | the dispatch menu |
 | `c`, `b`, `P`, `F`, `f`, `m`, `r`, `X`, `z`, `l`, `d` | the commit, branch, push, pull, fetch, merge, rebase, reset, stash, log and diff menus |
 | `A`, `V`, `w` | the cherry-pick, revert and apply-patches (git am) menus |
+| `t`, `M`, `!`, `C`, `I`, `Q` | the tag, remote and run menus, clone, init, and a git command |
 
 Commit messages are written in a `COMMIT_EDITMSG` buffer in `git-commit-mode`, and an interactive rebase's todo list in `git-rebase-mode`; `C-c C-c` finishes and `C-c C-k` gives up. git runs E8 as its editor for them through with-editor, so git's own template and hooks apply.
 
@@ -54,13 +55,15 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 - **Log** (`l`): the current branch, HEAD, another, the related branches, local or all branches, all references, matching branches or tags, a file's history, a definition's trace, a commit's merge; reflogs; shortlog; cherries. Each commit has its graph, refs and summary, and its author and age in the margin (`L` to toggle, cycle or detail it); `+`, `-` and `=` change the limit; with `++header`, `--patch` or `--stat` the commit's header or diff. `RET` shows a commit.
 - **The status buffer** as Magit's: the headers (an error, the diff filter, Head, Merge or Rebase, Push, the tags), a merge, rebase, git am, cherry-pick, revert or bisect going on, untracked files, unstaged and staged changes, stashes, and the commits unpushed, unpulled or recent, each section a function in `magit-status-sections-hook`; `j` jumps to a section.
 - **Diff** (`d`): dwim, a range, two paths, unstaged, staged, the worktree, a commit, a stash, each with a diffstat; `+`, `-` and `0` change the context, `j` jumps between the diffstat and the diff, `SPC` and `DEL` show the commit at point or scroll it, and with `magit-diff-refine-hunk` the words that changed are marked. The revision buffer shows a commit's refs, author, parents, the branches it is merged into and contained in, the tags around it, its message and notes, and a tag's message; the stash buffer a stash's unstaged, staged and untracked changes. `RET` on a hunk visits its line in the work tree or the blob.
-- From the dispatch menu, tag, ignore, init, clone, run a git command, refs, cherries, add a remote and format patches, one command each.
+- **Tags** (`t`): create one, a release tag named from the release commit or the last release, delete, and prune those that differ from a remote's.
+- **Remotes** (`M`): the current remote's url, fetch, pushurl, push and tagOpt variables, set in the menu; add (offering `remote.pushDefault`), rename and remove (the push variables follow), prune stale branches and refspecs, unshallow, configure another remote, and update the default branch.
+- **Clone** (`C`, or `C-u C` for the menu: regular, shallow, bare, mirror, sparse), from a url, a name such as `gh:owner/repo`, a path, a local url or a bundle; **init** (`I`); and **run** (`!`: a git or shell command, in the repository or the working directory, gitk, git gui, git mergetool).
+- From the dispatch menu, ignore, refs, cherries and format patches, one command each.
 
 ## What is missing
 
 - **Not there at all**: blame; bisect; worktrees; submodules; subtrees; notes; ediff; applying or reversing a change from elsewhere (`a`, `v`); and `magit-file-dispatch`. Their keys in the menus say so.
-- **One command rather than a menu**: tag and remote, where Magit opens a menu of their own.
-- Suffixes Magit puts above level 4 (signing, `--exec`, a rebase's strategy) are left out of the menus until E8's transient has levels (E8 0.5).
+- Suffixes Magit puts above level 4 (signing, `--exec`, a rebase's strategy, some of clone's) are left out of the menus until E8's transient has levels (E8 0.5).
 - Only programs E8 starts can use E8 as their editor (see e8-with-editor).
 
 ## Credit
@@ -76,7 +79,7 @@ make test
 make types
 ```
 
-`make` clones e8-magit-section and e8-with-editor into `.e8/deps`. The tests in `test/magit-tests.ts` each make a git repository in a temporary directory and check what the status buffer shows, key by key, against what Magit 4.4.0 shows in Emacs 30; that staging, unstaging, discarding, committing, branching, stashing, pushing, an instant fixup, an interactive rebase, rewording, cherry-picking, spinning off, reverting and applying a patch change the repository as they should; and that each menu is laid out as Magit's. `test/oracle/` holds what Magit shows for each case in `test/oracle/cases.json`, a fixture repository made by `test/fixtures.sh` and keys typed in its status buffer, and `test/oracle-tests.ts` types the same keys in E8 and compares the buffer's name, text, point and faces; a case marked `pending` is one the [plan](docs/plan.md) has yet to port, and `E8_ORACLE_REPORT=1 make test` prints what differs. `test/menus.json` holds Magit's menus. Both are recorded from Emacs by `test/record.el` (`make oracle`, or `E8_ORACLE_ONLY=NAME make oracle` for the cases whose names have NAME, with Magit installed by elpaca or `E8_ELPA_BUILDS` naming where its packages are built).
+`make` clones e8-magit-section and e8-with-editor into `.e8/deps`. The tests in `test/magit-tests.ts` each make a git repository in a temporary directory and check what the status buffer shows, key by key, against what Magit 4.4.0 shows in Emacs 30; that staging, unstaging, discarding, committing, branching, stashing, pushing, an instant fixup, an interactive rebase, rewording, cherry-picking, spinning off, reverting, applying a patch, tags, remotes, cloning, init and running git change the repository as they should; and that each menu is laid out as Magit's. `test/oracle/` holds what Magit shows for each case in `test/oracle/cases.json`, a fixture repository made by `test/fixtures.sh` and keys typed in its status buffer, and `test/oracle-tests.ts` types the same keys in E8 and compares the buffer's name, text, point and faces; a case marked `pending` is one the [plan](docs/plan.md) has yet to port, and `E8_ORACLE_REPORT=1 make test` prints what differs. `test/menus.json` holds Magit's menus. Both are recorded from Emacs by `test/record.el` (`make oracle`, or `E8_ORACLE_ONLY=NAME make oracle` for the cases whose names have NAME, with Magit installed by elpaca or `E8_ELPA_BUILDS` naming where its packages are built).
 
 ## Licence
 

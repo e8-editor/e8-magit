@@ -57,6 +57,7 @@ import {
   magitToplevel,
   magitGitExecutable,
 } from "magit-git";
+import { magitCallGit } from "magit-process";
 import { magitBufferName, magitGetModeBuffer, magitDisplayBuffer, magitSetupBuffer, magitStatusMode } from "magit-mode";
 import { inserters, magitDiffArguments, magitInsertStagedChanges, magitInsertUnstagedChanges, runSectionHook, type FileValue } from "magit-diff";
 import {
@@ -469,16 +470,11 @@ function statusArgs(name: string, kind: "diff" | "log"): [string[], string[]] {
   return kind === "diff" ? [magitDiffArguments("magit-status-mode")[0], []] : [magitLogArguments("magit-status-mode")[0], []];
 }
 
-/** Makes a repository in DIRECTORY and shows its status, as magit-init. */
+/** Makes a repository in DIRECTORY, or initialises it again, and shows its status, as magit-init called from code. */
 export function magitInit(directory: string): void {
   const dir = e8.fileNameAsDirectory(e8.expandFileName(directory));
-  const top = magitToplevel(dir);
-  if (top) {
-    if (top === dir) e8.userError(`${dir} is already a repository`);
-    if (!e8.yOrNP(`${dir} is inside a repository.  Create another? `)) e8.userError("Abort");
-  }
   e8.makeDirectory(dir, { parents: true });
-  e8.callProcess([magitGitExecutable(), "init", dir], { directory: dir });
+  magitCallGit("init", dir);
   magitStatusSetupBuffer(dir);
 }
 
@@ -496,11 +492,6 @@ export const magitStatus = e8.defineCommand({
     if (!e8.yOrNP(toplevel ? `${toplevel} is a repository.  Create another in ${dir}? ` : `Create repository in ${dir}? `)) return;
     magitInit(dir);
   },
-});
-e8.defineCommand({
-  name: "magit-init",
-  doc: "Initialize a Git repository, then show its status.",
-  run: () => magitInit(e8.readFileName("Create repository in: ", { dir: String(e8.variable("default-directory")) })),
 });
 e8.defineCommand({
   name: "magit-status-here",
@@ -622,3 +613,21 @@ e8.remapCommand("magit-error-section-map", "magit-visit-thing" as e8.CommandName
 for (const t of ["untracked", "unstaged", "staged", "error"]) magitSectionDefineType(t, { keymap: `magit-${t}-section-map` });
 
 void magitGitRun;
+
+/** Asks before making a repository inside another, or reinitialising one, as magit-init's interactive form; DIRECTORY as a directory name. */
+function magitInitRead(): string {
+  const directory = e8.fileNameAsDirectory(e8.expandFileName(e8.readFileName("Create repository in: ", { dir: String(e8.variable("default-directory")) })));
+  let toplevel = magitToplevel(directory);
+  if (toplevel) {
+    toplevel = e8.fileNameAsDirectory(e8.expandFileName(toplevel));
+    const q = toplevel === directory ? `Reinitialize existing repository ${directory}? ` : `${toplevel} is a repository.  Create another in ${directory}? `;
+    if (!e8.yOrNP(q)) e8.userError("Abort");
+  }
+  return directory;
+}
+
+export const magitInitCommand = e8.defineCommand({
+  name: "magit-init",
+  doc: "Initialize a Git repository, then show its status.  If the directory is below an existing repository, then the user has to confirm that a new one should be created inside.  If the directory is the root of the existing repository, then the user has to confirm that it should be reinitialized.",
+  run: () => magitInit(magitInitRead()),
+});

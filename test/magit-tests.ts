@@ -10,6 +10,8 @@
 
 import { ertDeftest, should, shouldEqual } from "ert";
 import { magitGitVersionGe } from "magit-git";
+import { magitListReleases, versionToList } from "magit-tag";
+import { magitCloneInternal, magitCloneNameToUrl, magitCloneUrlToName } from "magit-clone";
 
 // Loading magit runs no git: required here, outside a repository and with
 // no git to run, as at startup anywhere. The test below checks what happened.
@@ -618,5 +620,124 @@ ertDeftest("git-rebase-mode-shows-its-own-keys-in-the-instructions", () => {
     should(text.includes("# M-p      move the commit at point up\n"), text);
     should(!text.includes("# p, pick"), text);
     should(!e8.bufferModified(), "showing the keys leaves the buffer unmodified");
+  });
+});
+
+// The menus that were one command: tags, remotes, cloning, init and run.
+
+ertDeftest("magit-tags-are-created-released-and-deleted", () => {
+  const dir = history();
+  withRepos([dir], () => {
+    status(dir);
+    e8.executeKbdMacro(`t t ${typed("v1.0.0")} RET RET`);
+    settle(() => git(dir, "tag") === "v1.0.0\n");
+    shouldEqual(git(dir, "tag"), "v1.0.0\n");
+    // A release commit's message names the version the release tag takes.
+    write(dir, "four.txt", "Four");
+    git(dir, "add", "four.txt");
+    git(dir, "commit", "-q", "-m", "Release version 1.1.0");
+    e8.executeKbdMacro("t r");
+    settle(() => git(dir, "tag").includes("v1.1.0"));
+    shouldEqual(git(dir, "tag"), "v1.0.0\nv1.1.0\n");
+    status(dir);
+    e8.executeKbdMacro(`t k ${typed("v1.0.0")} RET`);
+    shouldEqual(git(dir, "tag"), "v1.1.0\n");
+  });
+});
+
+ertDeftest("magit-releases-are-ordered-by-version", () => {
+  const dir = history();
+  withRepos([dir], () => {
+    for (const t of ["v1.9.0", "v1.10.0", "v1.10.0-rc1", "v0.1", "not-a-release"]) git(dir, "tag", t);
+    status(dir);
+    shouldEqual(
+      magitListReleases().map(([, tag]) => tag),
+      ["v1.10.0", "v1.10.0-rc1", "v1.9.0", "v0.1"],
+    );
+    should(versionToList("1.2-rc3").join(",") === "1,2,-1,3", versionToList("1.2-rc3").join(","));
+  });
+});
+
+ertDeftest("magit-remotes-are-added-renamed-and-removed", () => {
+  const dir = history();
+  const other = bare();
+  withRepos([dir, other], () => {
+    status(dir);
+    // -f fetches after adding; y sets remote.pushDefault to the new remote.
+    e8.executeKbdMacro(`M a ${typed("mirror")} RET ${typed(other)} RET y`);
+    shouldEqual(git(dir, "remote"), "mirror\n");
+    shouldEqual(git(dir, "config", "remote.pushDefault"), "mirror\n");
+    git(dir, "config", "branch.main.pushRemote", "mirror");
+    e8.executeKbdMacro(`M r ${typed("mirror")} RET ${typed("backup")} RET`);
+    shouldEqual(git(dir, "remote"), "backup\n");
+    // The push variables naming the remote follow it.
+    shouldEqual(git(dir, "config", "remote.pushDefault"), "backup\n");
+    shouldEqual(git(dir, "config", "branch.main.pushRemote"), "backup\n");
+    e8.executeKbdMacro(`M k ${typed("backup")} RET`);
+    shouldEqual(git(dir, "remote"), "");
+    shouldEqual(git(dir, "config", "--get-regexp", "pushRemote|pushDefault").trim(), "");
+  });
+});
+
+ertDeftest("magit-the-remote-menu-shows-and-sets-the-remotes-variables", () => {
+  const dir = history();
+  const other = bare();
+  withRepos([dir, other], () => {
+    git(dir, "remote", "add", "origin", other);
+    status(dir);
+    e8.executeKbdMacro("M");
+    const menu = e8.withCurrentBuffer(" *transient*", () => e8.bufferText());
+    should(menu.startsWith(`Variables\n u remote.origin.url ${other}\n U remote.origin.fetch +refs/heads/*:refs/remotes/origin/*\n s remote.origin.pushurl unset\n S remote.origin.push unset\n O remote.origin.tagOpt [--no-tags|--tags]\n`), menu);
+    // O cycles tagOpt through its choices, staying in the menu.
+    e8.executeKbdMacro("O");
+    shouldEqual(git(dir, "config", "remote.origin.tagOpt"), "--no-tags\n");
+    e8.executeKbdMacro("O O");
+    shouldEqual(git(dir, "config", "remote.origin.tagOpt"), "");
+    e8.executeKbdMacro("C-g");
+  });
+});
+
+ertDeftest("magit-clone-names-become-urls", () => {
+  shouldEqual(magitCloneUrlToName("git@github.com:magit/magit.git"), "magit");
+  shouldEqual(magitCloneUrlToName("https://example.com/a/b"), "b");
+  shouldEqual(magitCloneNameToUrl("gh:magit/magit"), "git@github.com:magit/magit.git");
+  shouldEqual(magitCloneNameToUrl("sh:~sircmpwn/scdoc"), "git@git.sr.ht:~sircmpwn/scdoc");
+});
+
+ertDeftest("magit-cloning-shows-the-new-repositorys-status", () => {
+  const dir = history();
+  const target = tempDir();
+  withRepos([dir, target], () => {
+    status(dir);
+    e8.letBind({ "magit-clone-set-remote.pushDefault": null }, () => magitCloneInternal(dir, `${target}copy`, []));
+    const shown = () => e8.windowBuffer(e8.selectedWindow());
+    settle(() => shown() === "magit: copy");
+    shouldEqual(shown(), "magit: copy");
+    shouldEqual(git(`${target}copy`, "log", "--format=%s"), "Three\nTwo\nOne\n");
+    // As magit-clone-set-remote-head is nil, origin/HEAD is not kept.
+    shouldEqual(git(`${target}copy`, "branch", "-r"), "  origin/main\n");
+  });
+});
+
+ertDeftest("magit-init-makes-a-repository-and-shows-it", () => {
+  const dir = tempDir();
+  withRepos([dir], () => {
+    e8.call("delete-other-windows");
+    e8.call("switch-to-buffer", "*magit-test*");
+    e8.setVariable("default-directory", dir);
+    e8.executeKbdMacro(`M-x ${typed("magit-init")} RET ${typed("new")} RET`);
+    should(e8.fileDirectoryP(`${dir}new/.git`), "a repository is made");
+    shouldEqual(e8.bufferName(), "magit: new");
+  });
+});
+
+ertDeftest("magit-git-command-runs-git-in-a-shell", () => {
+  const dir = history();
+  withRepos([dir], () => {
+    status(dir);
+    // Q reads the command with "git " already typed.
+    e8.executeKbdMacro(`Q ${typed("tag from-q")} RET`);
+    settle(() => git(dir, "tag") === "from-q\n");
+    shouldEqual(git(dir, "tag"), "from-q\n");
   });
 });
