@@ -116,12 +116,13 @@ ertDeftest("magit-display-buffer-fullcolumn-most-v1-takes-the-column", () => {
       shouldEqual(layout(), [true, `magit: ${name}`, "*magit-test*"]);
       showDiff();
       shouldEqual(layout(), [true, `magit-diff: ${name}`, "*magit-test*"]);
-      // From a log, a diff goes in another window.
+      // From a log, a diff goes where display-buffer puts it, not taking the
+      // column: in Emacs, the window that showed the diff before, which is
+      // the log's here; E8 before 0.5.9 used the other window.
       e8.call("magit-log-current" as e8.CommandName);
       shouldEqual(layout(), [true, `magit-log: ${name}`, "*magit-test*"]);
       showDiff();
       shouldEqual(e8.windowList().length, 2);
-      should(e8.windowList().some((w) => e8.windowBuffer(w) === `magit-log: ${name}`), "the log stays");
       shouldEqual(selected(), `magit-diff: ${name}`);
     }),
   );
