@@ -41,6 +41,7 @@ import { magitFindFileIndexNoselect, magitFindFileNoselect, magitGetRevisionBuff
 import { magitDiffDwimTarget, magitDiffReadRangeOrCommit, magitDiffType } from "magit-diff";
 import { magitStageFiles, smergeKeepN, smergeMatchConflict } from "magit-apply";
 import { magitGitMergetool } from "magit-extras";
+import { isWindow, type Win } from "magit-mode";
 
 // Options
 
@@ -658,12 +659,12 @@ export const magitEdiff = transientDefinePrefix("magit-ediff", {
 /** Kills Ediff's own buffers and the control panel's window, as magit-ediff-cleanup-auxiliary-buffers. */
 export function magitEdiffCleanupAuxiliaryBuffers(): void {
   const ctlBuf = ctlVar("ediff-control-buffer") as e8.Buffer | null;
-  const ctlWin = live(ctlBuf) ? (e8.funcall("ediff-get-visible-buffer-window", ctlBuf) as number | null) : null;
+  const ctlWin = live(ctlBuf) ? (e8.funcall("ediff-get-visible-buffer-window", ctlBuf) as Win | null) : null;
   for (const v of ["ediff-diff-buffer", "ediff-custom-diff-buffer", "ediff-fine-diff-buffer", "ediff-tmp-buffer", "ediff-error-buffer", "ediff-msg-buffer", "ediff-debug-buffer"]) {
     e8.funcall("ediff-kill-buffer-carefully", ctlVar(v) ?? null);
   }
   // E8 has no control frame: the control panel is in a window.
-  if (typeof ctlWin === "number" && e8.windowList().includes(ctlWin) && e8.windowList().length > 1) e8.deleteWindow(ctlWin);
+  if (isWindow(ctlWin) && e8.windowList().includes(ctlWin) && e8.windowList().length > 1) e8.deleteWindow(ctlWin);
   e8.funcall("ediff-kill-buffer-carefully", ctlBuf ?? null);
 }
 

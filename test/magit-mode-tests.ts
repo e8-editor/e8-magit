@@ -14,7 +14,7 @@ import { git, repo, typed, withRepos } from "magit-test-helpers";
 /** The selected frame's windows: a buffer's name, or [side-by-side, first, second]. */
 type Layout = string | [boolean, Layout, Layout];
 function layout(): Layout {
-  const node = (t: e8.WindowTreeNode): Layout => (typeof t === "number" ? (e8.windowBuffer(t) ?? "") : [t[0], node(t[2]), node(t[3])]);
+  const node = (t: e8.WindowTreeNode): Layout => (!Array.isArray(t) ? (e8.windowBuffer(t) ?? "") : [t[0], node(t[2]), node(t[3])]);
   return node(e8.windowTree());
 }
 const selected = (): string => e8.windowBuffer(e8.selectedWindow()) ?? "";

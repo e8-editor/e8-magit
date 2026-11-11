@@ -19,6 +19,14 @@ import { currentSection, magitGetSection, magitSectionIdent, magitSectionMode, m
 import { PerBuffer, truthy } from "subr";
 import { magitProfile, magitProfileResults, magitProfiling, magitRefreshCacheCounts, magitToplevel, magitToplevelOrError, magitWithRefreshCache, magitZapGitVersionCache } from "magit-git";
 
+/** A window as the E8 running gives one: an object, or in E8 0.5.8 and before a number. */
+export type Win = ReturnType<typeof e8.selectedWindow>;
+/** A frame as the E8 running gives one. */
+type Frm = ReturnType<typeof e8.selectedFrame>;
+/** Whether a value is a window, an object or, in older E8s, its number. */
+export const isWindow = (v: unknown): v is Win =>
+  typeof v === "number" || ("windowp" in e8 && (e8 as unknown as { windowp: (x: unknown) => boolean }).windowp(v));
+
 e8.defineVariable({
   name: "magit-save-repository-buffers",
   doc: "Whether to save file-visiting buffers of the repository before running git: t asks nothing, dontask too; nil saves none.",
@@ -298,7 +306,7 @@ const modeOf = (buffer: string): string => e8.withCurrentBuffer(buffer, () => St
 /** Whether BUFFER's mode is one of MODES or built on one, as derived-mode-p in it. */
 const derivedIn = (buffer: string, ...modes: string[]): boolean => e8.withCurrentBuffer(buffer, () => e8.derivedModeP(...modes));
 /** The window showing BUFFER, the selected one first, as get-buffer-window. */
-function bufferWindow(buffer: string): number | undefined {
+function bufferWindow(buffer: string): Win | undefined {
   const selected = e8.selectedWindow();
   if (e8.windowBuffer(selected) === buffer) return selected;
   return e8.windowList().find((w) => e8.windowBuffer(w) === buffer);
@@ -315,26 +323,26 @@ export function magitDisplayBuffer(buffer: string, displayFunction?: string | ((
   e8.withCurrentBuffer(buffer, () => e8.runHooks("magit-pre-display-buffer-hook"));
   const fn = displayFunction ?? (e8.variable("magit-display-buffer-function") as string | ((buffer: string) => unknown) | null) ?? "magit-display-buffer-traditional";
   let window = typeof fn === "function" ? fn(buffer) : fn === "display-buffer" ? displayBufferDefault(buffer) : e8.funcall(fn, buffer);
-  if (typeof window !== "number" || !e8.windowList().includes(window)) window = bufferWindow(buffer);
-  if (!truthy(e8.variable("magit-display-buffer-noselect")) && typeof window === "number") e8.selectWindow(window);
+  if (!isWindow(window) || !e8.windowList().includes(window)) window = bufferWindow(buffer);
+  if (!truthy(e8.variable("magit-display-buffer-noselect")) && isWindow(window)) e8.selectWindow(window);
   e8.withCurrentBuffer(buffer, () => e8.runHooks("magit-post-display-buffer-hook"));
 }
 
 // The ways of display-buffer the functions below ask for.
 
 /** Shows BUFFER in the selected window, as display-buffer-same-window. */
-function displayBufferSameWindow(buffer: string): number {
+function displayBufferSameWindow(buffer: string): Win {
   const selected = e8.selectedWindow();
   if (e8.windowBuffer(selected) !== buffer) e8.call("switch-to-buffer", buffer);
   return selected;
 }
 /** Shows BUFFER as display-buffer does by default, in a window it shows in, else one split off, else another. */
-function displayBufferDefault(buffer: string): number {
+function displayBufferDefault(buffer: string): Win {
   e8.call("display-buffer", buffer);
   return bufferWindow(buffer)!;
 }
 /** Shows BUFFER as display-buffer does with inhibit-same-window: never in the selected window. */
-export function magitDisplayBufferInhibitSameWindow(buffer: string): number {
+export function magitDisplayBufferInhibitSameWindow(buffer: string): Win {
   const selected = e8.selectedWindow();
   const other = e8.windowList().find((w) => w !== selected && e8.windowBuffer(w) === buffer);
   if (other !== undefined) return other;
@@ -344,7 +352,7 @@ export function magitDisplayBufferInhibitSameWindow(buffer: string): number {
   return window;
 }
 /** Shows BUFFER in a window that shows it, or the selected one, then deletes the frame's other windows, as magit--display-buffer-fullframe. */
-function displayBufferFullframe(buffer: string): number {
+function displayBufferFullframe(buffer: string): Win {
   const window = bufferWindow(buffer) ?? displayBufferSameWindow(buffer);
   for (const w of e8.windowList()) if (w !== window) e8.deleteWindow(w);
   return window;
@@ -354,7 +362,7 @@ function displayBufferFullframe(buffer: string): number {
  * buffer, so BUFFER is above or left of it, as magit--display-buffer-topleft;
  * a window already showing BUFFER is used as it is.
  */
-function displayBufferTopleft(buffer: string): number {
+function displayBufferTopleft(buffer: string): Win {
   const showing = bufferWindow(buffer);
   if (showing !== undefined) return showing;
   const before = e8.windowList();
@@ -377,11 +385,11 @@ function displayBufferTopleft(buffer: string): number {
   return window1;
 }
 /** Each window's left edge and width, in columns, from the frame's window tree. */
-function windowColumns(): Map<number, [number, number]> {
-  const columns = new Map<number, [number, number]>();
-  const width = (t: e8.WindowTreeNode): number => (typeof t === "number" ? (e8.windowSize(t)?.totalWidth ?? 0) : t[0] ? width(t[2]) + width(t[3]) : width(t[2]));
+function windowColumns(): Map<Win, [number, number]> {
+  const columns = new Map<Win, [number, number]>();
+  const width = (t: e8.WindowTreeNode): number => (!Array.isArray(t) ? (e8.windowSize(t)?.totalWidth ?? 0) : t[0] ? width(t[2]) + width(t[3]) : width(t[2]));
   const walk = (t: e8.WindowTreeNode, left: number): void => {
-    if (typeof t === "number") columns.set(t, [left, width(t)]);
+    if (!Array.isArray(t)) columns.set(t, [left, width(t)]);
     else {
       walk(t[2], left);
       walk(t[3], t[0] ? left + width(t[2]) : left);
@@ -391,13 +399,13 @@ function windowColumns(): Map<number, [number, number]> {
   return columns;
 }
 /** Deletes the windows above and below WINDOW, those with its left and right edges, as delete-other-windows-vertically. */
-function deleteOtherWindowsVertically(window: number): void {
+function deleteOtherWindowsVertically(window: Win): void {
   const columns = windowColumns();
   const [left, width] = columns.get(window) ?? [0, 0];
   for (const [w, [l, wd]] of columns) if (w !== window && l === left && wd === width) e8.deleteWindow(w);
 }
 /** Shows BUFFER in a window that shows it, or the selected one, then makes that the column's only window, as magit--display-buffer-fullcolumn. */
-function displayBufferFullcolumn(buffer: string): number {
+function displayBufferFullcolumn(buffer: string): Win {
   const window = bufferWindow(buffer) ?? displayBufferSameWindow(buffer);
   deleteOtherWindowsVertically(window);
   return window;
@@ -409,7 +417,7 @@ function displayBufferFullcolumn(buffer: string): number {
  * buffer, unless BUFFER is a process, revision, diff, stash or status
  * buffer, which go in another window.
  */
-export function magitDisplayBufferTraditional(buffer: string): number {
+export function magitDisplayBufferTraditional(buffer: string): Win {
   const elsewhere = ["magit-process-mode", "magit-revision-mode", "magit-diff-mode", "magit-stash-mode", "magit-status-mode"].includes(modeOf(buffer));
   return e8.derivedModeP("magit-mode") && !elsewhere ? displayBufferSameWindow(buffer) : displayBufferDefault(buffer);
 }
@@ -420,13 +428,13 @@ e8.defun("magit-display-buffer-traditional", magitDisplayBufferTraditional);
  * magit-display-buffer-same-window-except-diff-v1: a buffer whose mode
  * derives from magit-diff-mode or magit-process-mode goes in another window.
  */
-export function magitDisplayBufferSameWindowExceptDiffV1(buffer: string): number {
+export function magitDisplayBufferSameWindowExceptDiffV1(buffer: string): Win {
   return derivedIn(buffer, "magit-diff-mode", "magit-process-mode") ? magitDisplayBufferInhibitSameWindow(buffer) : displayBufferSameWindow(buffer);
 }
 e8.defun("magit-display-buffer-same-window-except-diff-v1", magitDisplayBufferSameWindowExceptDiffV1);
 
 /** Displays BUFFER, filling the entire frame if it is a status buffer, else as magit-display-buffer-traditional, as magit-display-buffer-fullframe-status-v1. */
-export function magitDisplayBufferFullframeStatusV1(buffer: string): number {
+export function magitDisplayBufferFullframeStatusV1(buffer: string): Win {
   return modeOf(buffer) === "magit-status-mode" ? displayBufferFullframe(buffer) : magitDisplayBufferTraditional(buffer);
 }
 e8.defun("magit-display-buffer-fullframe-status-v1", magitDisplayBufferFullframeStatusV1);
@@ -438,7 +446,7 @@ e8.defun("magit-display-buffer-fullframe-status-v1", magitDisplayBufferFullframe
  * the current buffer rather than below or right of it, and any other in
  * the selected window.
  */
-export function magitDisplayBufferFullframeStatusTopleftV1(buffer: string): number {
+export function magitDisplayBufferFullframeStatusTopleftV1(buffer: string): Win {
   if (modeOf(buffer) === "magit-status-mode") return displayBufferFullframe(buffer);
   if (derivedIn(buffer, "magit-diff-mode", "magit-process-mode")) return displayBufferTopleft(buffer);
   return displayBufferSameWindow(buffer);
@@ -452,7 +460,7 @@ e8.defun("magit-display-buffer-fullframe-status-topleft-v1", magitDisplayBufferF
  * a process buffer, or a diff buffer shown from a log or a commit message,
  * goes in another window.
  */
-export function magitDisplayBufferFullcolumnMostV1(buffer: string): number {
+export function magitDisplayBufferFullcolumnMostV1(buffer: string): Win {
   const fromLog = truthy(e8.variable("git-commit-mode")) || e8.derivedModeP("magit-log-mode", "magit-cherry-mode", "magit-reflog-mode");
   if ((fromLog && derivedIn(buffer, "magit-diff-mode")) || derivedIn(buffer, "magit-process-mode")) return displayBufferDefault(buffer);
   return displayBufferFullcolumn(buffer);
@@ -474,7 +482,7 @@ e8.addHook("magit-post-display-buffer-hook", magitMaybeSetDedicated);
 // Restoring the window configuration.
 
 /** Each Magit buffer's window configuration from before it was shown, as magit-previous-window-configuration. */
-const previousWindowConfigurations = new PerBuffer<[number, e8.WindowConfiguration]>();
+const previousWindowConfigurations = new PerBuffer<[Frm, e8.WindowConfiguration]>();
 
 /**
  * Saves the current window configuration, as magit-save-window-configuration,
