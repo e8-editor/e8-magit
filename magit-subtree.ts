@@ -16,7 +16,7 @@
 import { transientArgs, transientDefinePrefix } from "transient";
 import { magitReadStringNs } from "magit-base";
 import { magitReadRefspec, magitReadRemoteOrUrl, magitToplevel } from "magit-git";
-import { magitRunGitAsync } from "magit-process";
+import { magitRunGitAsync, type Proc } from "magit-process";
 import { magitTransientReadRevision } from "magit-transient";
 
 /**
@@ -46,7 +46,7 @@ export function magitSubtreePrefix(transient: string, prompt: string): string {
 export const magitSubtreeArguments = (transient: string): string[] => transientArgs(transient).filter((a) => !a.startsWith("--prefix="));
 
 /** Runs git subtree SUBCMD on PREFIX in the background, as magit-git-subtree. */
-export const magitGitSubtree = (subcmd: string, prefix: string, ...args: (string | string[])[]): string => magitRunGitAsync("subtree", subcmd, `--prefix=${prefix}`, ...args);
+export const magitGitSubtree = (subcmd: string, prefix: string, ...args: (string | string[])[]): Proc => magitRunGitAsync("subtree", subcmd, `--prefix=${prefix}`, ...args);
 
 /** Reads the repository and ref to import, as the add and pull commands do. */
 function readRemoteAndRef(): [string, string] {
@@ -59,7 +59,7 @@ function readRemoteAndRef(): [string, string] {
 // magitProcessBuffer and magitProcessBufferCommand.
 
 /** Adds REF from REPOSITORY as a new subtree at PREFIX, as magit-subtree-add. */
-export const magitSubtreeAdd = (prefix: string, repository: string, ref: string, args: string[] = []): string => magitGitSubtree("add", prefix, args, repository, ref);
+export const magitSubtreeAdd = (prefix: string, repository: string, ref: string, args: string[] = []): Proc => magitGitSubtree("add", prefix, args, repository, ref);
 export const magitSubtreeAddCommand = e8.defineCommand({
   name: "magit-subtree-add",
   doc: "Add REF from REPOSITORY as a new subtree at PREFIX.",
@@ -71,7 +71,7 @@ export const magitSubtreeAddCommand = e8.defineCommand({
 });
 
 /** Adds COMMIT as a new subtree at PREFIX, as magit-subtree-add-commit. */
-export const magitSubtreeAddCommit = (prefix: string, commit: string, args: string[] = []): string => magitGitSubtree("add", prefix, args, commit);
+export const magitSubtreeAddCommit = (prefix: string, commit: string, args: string[] = []): Proc => magitGitSubtree("add", prefix, args, commit);
 export const magitSubtreeAddCommitCommand = e8.defineCommand({
   name: "magit-subtree-add-commit",
   doc: "Add COMMIT as a new subtree at PREFIX.",
@@ -82,7 +82,7 @@ export const magitSubtreeAddCommitCommand = e8.defineCommand({
 });
 
 /** Merges COMMIT into the PREFIX subtree, as magit-subtree-merge. */
-export const magitSubtreeMerge = (prefix: string, commit: string, args: string[] = []): string => magitGitSubtree("merge", prefix, args, commit);
+export const magitSubtreeMerge = (prefix: string, commit: string, args: string[] = []): Proc => magitGitSubtree("merge", prefix, args, commit);
 export const magitSubtreeMergeCommand = e8.defineCommand({
   name: "magit-subtree-merge",
   doc: "Merge COMMIT into the PREFIX subtree.",
@@ -93,7 +93,7 @@ export const magitSubtreeMergeCommand = e8.defineCommand({
 });
 
 /** Pulls REF from REPOSITORY into the PREFIX subtree, as magit-subtree-pull. */
-export const magitSubtreePull = (prefix: string, repository: string, ref: string, args: string[] = []): string => magitGitSubtree("pull", prefix, args, repository, ref);
+export const magitSubtreePull = (prefix: string, repository: string, ref: string, args: string[] = []): Proc => magitGitSubtree("pull", prefix, args, repository, ref);
 export const magitSubtreePullCommand = e8.defineCommand({
   name: "magit-subtree-pull",
   doc: "Pull REF from REPOSITORY into the PREFIX subtree.",
@@ -105,7 +105,7 @@ export const magitSubtreePullCommand = e8.defineCommand({
 });
 
 /** Pushes the history of the subtree PREFIX to REF on REPOSITORY, as magit-subtree-push. */
-export const magitSubtreePush = (prefix: string, repository: string, ref: string, args: string[] = []): string => magitGitSubtree("push", prefix, args, repository, ref);
+export const magitSubtreePush = (prefix: string, repository: string, ref: string, args: string[] = []): Proc => magitGitSubtree("push", prefix, args, repository, ref);
 export const magitSubtreePushCommand = e8.defineCommand({
   name: "magit-subtree-push",
   doc: "Extract the history of the subtree PREFIX and push it to REF on REPOSITORY.",
@@ -118,7 +118,7 @@ export const magitSubtreePushCommand = e8.defineCommand({
 });
 
 /** Extracts the history of the subtree PREFIX, as magit-subtree-split. */
-export const magitSubtreeSplit = (prefix: string, commit: string, args: string[] = []): string => magitGitSubtree("split", prefix, args, commit);
+export const magitSubtreeSplit = (prefix: string, commit: string, args: string[] = []): Proc => magitGitSubtree("split", prefix, args, commit);
 export const magitSubtreeSplitCommand = e8.defineCommand({
   name: "magit-subtree-split",
   doc: "Extract the history of the subtree PREFIX.",

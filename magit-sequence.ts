@@ -18,7 +18,7 @@ import { truthy } from "subr";
 import * as transient from "transient";
 import { transientArgs, transientDefinePrefix } from "transient";
 import { magitCompletingRead, magitConfirm, magitReadStringNs, prefixArgP } from "magit-base";
-import { magitCallGit, magitGit, magitRunGit, magitRunGitSequencer, magitStartGitWith } from "magit-process";
+import { magitCallGit, magitGit, magitRunGit, magitRunGitSequencer, magitStartGitWith, type Proc } from "magit-process";
 import { magitRefresh } from "magit-mode";
 import { magitLogSelect } from "magit-log";
 import {
@@ -305,7 +305,7 @@ const quit = (msg: string): never => e8.userError(msg);
 const regionCommits = (): string[] => ((magitRegionValues("commit", true) as string[] | undefined) ?? []).slice().reverse();
 
 /** Starts git's sequencer with ARGS, then calls THEN with its exit code. */
-const sequencer = (args: GitArg[], then?: (exit: number) => void, env?: { [k: string]: string }): string =>
+const sequencer = (args: GitArg[], then?: (exit: number) => void, env?: { [k: string]: string }): Proc =>
   then || env ? magitStartGitWith(args, { editor: true, then, env }) : magitRunGitSequencer(...args);
 
 export const magitSequencerContinue = e8.defineCommand({
@@ -346,7 +346,7 @@ export const magitSequencerAbort = e8.defineCommand({
 const cherryArgs = (): string[] => transientArgs("magit-cherry-pick");
 
 /** Cherry-picks or reverts COMMITS, a range too, asking for a mainline for merges, as magit--cherry-pick. */
-function cherryPick(commitsIn: string | string[], args: string[], revert = false, then?: (exit: number) => void, env?: { [k: string]: string }): string {
+function cherryPick(commitsIn: string | string[], args: string[], revert = false, then?: (exit: number) => void, env?: { [k: string]: string }): Proc {
   const command = revert ? "revert" : "cherry-pick";
   const commits = typeof commitsIn === "string" ? (commitsIn.includes("..") ? commitsIn.split("..") : [commitsIn]) : commitsIn;
   const merges = commits.filter((c) => magitMergeCommitP(c));
@@ -527,7 +527,7 @@ export const magitRevert = transientDefinePrefix("magit-revert", {
 
 const amArgs = (): string[] => transientArgs("magit-am");
 /** Applies the patches FILES with ARGS, as magit-am-apply-patches does given them. */
-export const magitAmApplyPatchesFiles = (files: string[], args = amArgs()): string => sequencer(["am", ...args, "--", ...files.map((f) => e8.expandFileName(f))]);
+export const magitAmApplyPatchesFiles = (files: string[], args = amArgs()): Proc => sequencer(["am", ...args, "--", ...files.map((f) => e8.expandFileName(f))]);
 export const magitAmApplyPatches = e8.defineCommand({
   name: "magit-am-apply-patches",
   doc: "Apply the patches FILES.",
@@ -596,7 +596,7 @@ export const magitAm = transientDefinePrefix("magit-am", {
 
 const rebaseArgs = (): string[] => transientArgs("magit-rebase");
 /** Rebases onto TARGET, as magit-git-rebase. */
-const gitRebase = (target: string, args: string[]): string => sequencer(["rebase", ...args, target]);
+const gitRebase = (target: string, args: string[]): Proc => sequencer(["rebase", ...args, target]);
 /** rbr when a recursive rebase is going on, as magit--rebase-resume-command. */
 const resumeCommand = (): string => (e8.fileExistsP(e8.expandFileName("rebase-recursive", magitGitdir())) ? "rbr" : "rebase");
 

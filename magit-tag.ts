@@ -16,7 +16,7 @@ import { magitRegionValues } from "magit-section";
 import { transientArgs, transientDefinePrefix } from "transient";
 import { magitCompletingRead, magitConfirm, prefixArgP } from "magit-base";
 import { magitGitLines, magitListTags, magitReadBranchOrCommit, magitReadRemote, magitReadTag, magitRevFormat, magitToplevel } from "magit-git";
-import { magitCallGit, magitRunGit, magitRunGitAsync, magitStartGitWith } from "magit-process";
+import { magitCallGit, magitRunGit, magitRunGitAsync, magitStartGitWith, type Proc } from "magit-process";
 import { magitReadGpgSigningKey } from "magit-transient";
 
 e8.defineVariable({
@@ -41,7 +41,7 @@ export const magitTagCreate = e8.defineCommand({
 });
 
 /** Runs git with E8 as its editor, as magit-run-git-with-editor, calling THEN when it ends. */
-const startWithEditor = (args: (string | undefined)[], then?: (exit: number) => void): string => magitStartGitWith(args, { editor: true, then });
+const startWithEditor = (args: (string | undefined)[], then?: (exit: number) => void): Proc => magitStartGitWith(args, { editor: true, then });
 
 export const magitTagDelete = e8.defineCommand({
   name: "magit-tag-delete",

@@ -19,7 +19,7 @@
 import { transientArgs, transientDefinePrefix } from "transient";
 import { magitCompletingReadMultiple } from "magit-base";
 import { magitGetBoolean, magitGitLines, magitRevisionDirectories } from "magit-git";
-import { magitRunGit, magitRunGitAsync } from "magit-process";
+import { magitRunGit, magitRunGitAsync, type Proc } from "magit-process";
 import { inserters } from "magit-diff";
 
 // Utilities.
@@ -50,7 +50,7 @@ export function magitSparseCheckoutDirectories(): string[] {
 // Commands.
 
 /** Converts the working tree to a sparse checkout, with ARGS such as --sparse-index, as magit-sparse-checkout-enable. */
-export function magitSparseCheckoutEnable(args: string[] = []): string {
+export function magitSparseCheckoutEnable(args: string[] = []): Proc {
   return magitRunGitAsync("sparse-checkout", "init", "--cone", args);
 }
 export const magitSparseCheckoutEnableCommand = e8.defineCommand({
@@ -60,7 +60,7 @@ export const magitSparseCheckoutEnableCommand = e8.defineCommand({
 });
 
 /** Restricts the working tree to DIRECTORIES, as magit-sparse-checkout-set. */
-export function magitSparseCheckoutSet(directories: string[]): string {
+export function magitSparseCheckoutSet(directories: string[]): Proc {
   magitSparseCheckoutAutoEnable();
   return magitRunGitAsync("sparse-checkout", "set", directories);
 }
@@ -75,7 +75,7 @@ export const magitSparseCheckoutSetCommand = e8.defineCommand({
 });
 
 /** Adds DIRECTORIES to the working tree, as magit-sparse-checkout-add. */
-export function magitSparseCheckoutAdd(directories: string[]): string {
+export function magitSparseCheckoutAdd(directories: string[]): Proc {
   magitSparseCheckoutAutoEnable();
   return magitRunGitAsync("sparse-checkout", "add", directories);
 }
@@ -90,7 +90,7 @@ export const magitSparseCheckoutAddCommand = e8.defineCommand({
 });
 
 /** Reapplies the sparse checkout rules to the working tree, as magit-sparse-checkout-reapply. */
-export const magitSparseCheckoutReapply = (): string => magitRunGitAsync("sparse-checkout", "reapply");
+export const magitSparseCheckoutReapply = (): Proc => magitRunGitAsync("sparse-checkout", "reapply");
 export const magitSparseCheckoutReapplyCommand = e8.defineCommand({
   name: "magit-sparse-checkout-reapply",
   doc: "Reapply the sparse checkout rules to the working tree.\nSome operations such as merging or rebasing may need to check out files that aren't included in the sparse checkout.  Call this command to reset to the sparse checkout state.",
@@ -98,7 +98,7 @@ export const magitSparseCheckoutReapplyCommand = e8.defineCommand({
 });
 
 /** Converts the sparse checkout to a full checkout, as magit-sparse-checkout-disable. */
-export const magitSparseCheckoutDisable = (): string => magitRunGitAsync("sparse-checkout", "disable");
+export const magitSparseCheckoutDisable = (): Proc => magitRunGitAsync("sparse-checkout", "disable");
 export const magitSparseCheckoutDisableCommand = e8.defineCommand({
   name: "magit-sparse-checkout-disable",
   doc: "Convert sparse checkout to full checkout.\nNote that disabling the sparse checkout does not clear the configured directories.  Call magit-sparse-checkout-enable to restore the previous sparse checkout.",

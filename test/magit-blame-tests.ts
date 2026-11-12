@@ -197,6 +197,19 @@ ertDeftest("magit-blame-quit-removes-the-overlays-and-restores-the-buffer", () =
   });
 });
 
+ertDeftest("magit-blame-mode-off-kills-the-running-blame", () => {
+  const repo = blameRepo();
+  withRepos([repo.replace(/repo\/$/, "")], () => {
+    visit(`${repo}file.txt`);
+    magitBlameAddition([]);
+    const process = e8.variable("magit-blame-process") as ReturnType<typeof e8.makeProcess> | null;
+    should(process !== null && e8.processLiveP(process), "blaming runs git");
+    e8.callWithPrefix(-1, "magit-blame-mode" as e8.CommandName);
+    should(!e8.processLiveP(process!), "turning blaming off kills it");
+    shouldEqual(e8.variable("magit-blame-process"), null);
+  });
+});
+
 ertDeftest("magit-blame-echo-says-each-chunks-summary", () => {
   const repo = blameRepo();
   withRepos([repo.replace(/repo\/$/, "")], () => {
