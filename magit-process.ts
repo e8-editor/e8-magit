@@ -24,6 +24,9 @@ import { magitConfirm, magitEllipsis, magitFormatTimeString } from "magit-base";
 import { magitGitExecutable, magitProcessGitArguments, magitProcessRecord, magitSetGitDebugReporter, magitToplevel, type GitArg } from "magit-git";
 import { magitBufferInfo, magitBufferName, magitModeGetBuffers, magitProcessMode, magitRefresh, magitRepoName, magitSaveRepositoryBuffers, magitSetupBuffer } from "magit-mode";
 
+/** A process as the E8 running gives one: an object, or in E8 0.5.8 and before its name. */
+export type Proc = ReturnType<typeof e8.makeProcess>;
+
 e8.defineFace({ name: "magit-process-ok", doc: "Face for zero exit-status.", attributes: { inherit: "magit-section-heading", weight: "bold" }, light: { foreground: "green" }, dark: { foreground: "green" } });
 e8.defineFace({ name: "magit-process-ng", doc: "Face for non-zero exit-status.", attributes: { inherit: "magit-section-heading", weight: "bold" }, light: { foreground: "red" }, dark: { foreground: "red" } });
 e8.defineFace({ name: "magit-mode-line-process", doc: "Face for git-process status in the mode line.", attributes: { inherit: "mode-line-emphasis" } });
@@ -99,7 +102,7 @@ export interface ProcessEntry {
   output: string;
   /** Its exit code, or undefined while it runs. */
   exit?: number;
-  process?: string;
+  process?: Proc;
   /** The timestamp its heading shows, as magit-process-timestamp-format made it when it started. */
   timestamp?: string;
   /** Its output with color escapes applied, and the output that was from. */
@@ -390,21 +393,22 @@ interface StartOptions {
  * Starts PROGRAM with ARGS in the background, logging its output as it
  * comes and answering its questions, then refreshing the buffer that
  * was current and the status buffer when it ends, as magit-start-process.
- * Gives the process's name.
+ * Gives the process.
  */
-export function magitStartProcess(program: string, args: string[], options: StartOptions = {}): string {
+export function magitStartProcess(program: string, args: string[], options: StartOptions = {}): Proc {
   const entry = processSetup(program, args);
   magitProcessRecord(program, args, entry.pwd);
   const commandBuffer = e8.currentBuffer();
   const connectionType = options.input === undefined && truthy(e8.variable("magit-process-connection-type")) ? "pty" : "pipe";
-  const collect = (proc: string, output: string) => processFilter(entry, proc, output);
+  const collect = (proc: Proc, output: string) => processFilter(entry, proc, output);
   const process = e8.makeProcess({
     name: e8.fileNameNondirectory(program),
     command: [program, ...args],
     directory: entry.pwd,
     env: { INSIDE_EMACS: "30.2,magit", ...(options.editor ? withEditorEnv() : {}), ...(options.env ?? {}) },
     connectionType,
-    filter: options.editor ? withEditorFilter(collect) : collect,
+    // The pinned with-editor declares its filter's process a string, as E8 0.5.8 gives it.
+    filter: options.editor ? (withEditorFilter(collect as unknown as (p: string, o: string) => void) as unknown as typeof collect) : collect,
     sentinel: (_p, event) => {
       if (!/^(finished|exited|failed|killed|terminated)/.test(event)) return;
       const exit = event.startsWith("finished") ? 0 : Number(/code (\d+)/.exec(event)?.[1] ?? 1);
@@ -435,20 +439,20 @@ export function magitProcessSentinel(entry: ProcessEntry, exit: number): void {
 }
 
 /** Starts git with ARGS in the background, as magit-start-git. */
-export function magitStartGit(input: string | undefined, ...args: GitArg[]): string {
+export function magitStartGit(input: string | undefined, ...args: GitArg[]): Proc {
   e8.runHooks("magit-pre-start-git-hook");
   magitSaveRepositoryBuffers();
   return magitStartProcess(magitGitExecutable(), magitProcessGitArguments(args), { input });
 }
 
 /** Starts git with ARGS in the background, saying so, as magit-run-git-async. */
-export function magitRunGitAsync(...args: GitArg[]): string {
+export function magitRunGitAsync(...args: GitArg[]): Proc {
   e8.message(`Running ${magitGitExecutable()} ${flat(args).join(" ")}`);
   return magitStartGit(undefined, ...args);
 }
 
 /** Starts git with ARGS in the background with E8 as its editor, as magit-run-git-with-editor. */
-export function magitRunGitWithEditor(...args: GitArg[]): string {
+export function magitRunGitWithEditor(...args: GitArg[]): Proc {
   e8.message(`Running ${magitGitExecutable()} ${flat(args).join(" ")}`);
   e8.runHooks("magit-pre-start-git-hook");
   magitSaveRepositoryBuffers();
@@ -456,12 +460,12 @@ export function magitRunGitWithEditor(...args: GitArg[]): string {
 }
 
 /** Starts git's sequencer (rebase, cherry-pick, revert, am) with E8 as its editor, as magit-run-git-sequencer. */
-export function magitRunGitSequencer(...args: GitArg[]): string {
+export function magitRunGitSequencer(...args: GitArg[]): Proc {
   return magitRunGitWithEditor(...args);
 }
 
 /** Starts git with ARGS in the background with extra options, for callers that need them. */
-export function magitStartGitWith(args: GitArg[], options: StartOptions): string {
+export function magitStartGitWith(args: GitArg[], options: StartOptions): Proc {
   e8.runHooks("magit-pre-start-git-hook");
   magitSaveRepositoryBuffers();
   e8.message(`Running ${magitGitExecutable()} ${flat(args).join(" ")}`);
@@ -471,7 +475,7 @@ export function magitStartGitWith(args: GitArg[], options: StartOptions): string
 const flat = (args: GitArg[]): string[] => args.flatMap((a) => (Array.isArray(a) ? flat(a) : a === undefined || a === null || a === false ? [] : [a]));
 
 /** Takes a process's OUTPUT into its entry, after any carriage return, and answers its questions, as magit-process-filter. */
-function processFilter(entry: ProcessEntry, process: string, output: string): void {
+function processFilter(entry: ProcessEntry, process: Proc, output: string): void {
   // A pseudo-terminal ends lines with CR LF, which Magit decodes as LF.
   let text = removeBogusErrors(output.replace(/\r\n/g, "\n"));
   const cr = text.lastIndexOf("\r");
@@ -490,7 +494,7 @@ function processFilter(entry: ProcessEntry, process: string, output: string): vo
 }
 
 /** Forwards a yes-or-no question, as magit-process-yes-or-no-prompt. */
-function yesOrNoPrompt(process: string, text: string): void {
+function yesOrNoPrompt(process: Proc, text: string): void {
   const re = e8.emacsRegexp(String(e8.variable("magit-process-yes-or-no-prompt-regexp")));
   const m = re.exec(text);
   if (!m) return;
@@ -530,7 +534,7 @@ function numberedGroup(regexp: string, m: RegExpExecArray, n: number): string | 
 }
 
 /** Forwards a username question, as magit-process-username-prompt. */
-function usernamePrompt(process: string, text: string): void {
+function usernamePrompt(process: Proc, text: string): void {
   const found = matchPrompt((e8.variable("magit-process-username-prompt-regexps") as string[] | null) ?? [], text);
   if (!found) return;
   const user = e8.readString(found[0], { default: e8.getenv("USER") });
@@ -538,7 +542,7 @@ function usernamePrompt(process: string, text: string): void {
 }
 
 /** Answers a password question, from magit-process-find-password-functions or the minibuffer, as magit-process-password-prompt. */
-function passwordPrompt(process: string, text: string): void {
+function passwordPrompt(process: Proc, text: string): void {
   const found = matchPrompt((e8.variable("magit-process-password-prompt-regexps") as string[] | null) ?? [], text);
   if (!found) return;
   const host = numberedGroup(found[2], found[1], 99);

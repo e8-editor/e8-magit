@@ -41,7 +41,7 @@ import {
   magitWithRefreshCache,
   magitListModulePaths,
 } from "magit-git";
-import { magitCallGit, magitGit, magitRunGitAsync, magitStartGitWith } from "magit-process";
+import { magitCallGit, magitGit, magitRunGitAsync, magitStartGitWith, type Proc } from "magit-process";
 import { magitBufferName, magitDisplayBuffer, magitRefresh } from "magit-mode";
 import { inserters } from "magit-diff";
 import { magitLogWashSummary } from "magit-log";
@@ -207,7 +207,7 @@ export function magitSubmoduleReadNameForPath(path: string, preferShort = false)
 }
 
 /** Adds the repository at URL as a module at PATH named NAME, absorbing its gitdir once it is cloned, as magit-submodule-add-1. */
-export function magitSubmoduleAdd1(url: string, path?: string, name?: string, args: string[] = []): string {
+export function magitSubmoduleAdd1(url: string, path?: string, name?: string, args: string[] = []): Proc {
   return withToplevel(() => {
     const top = defaultDirectory();
     if (name && path) magitSubmoduleMaybeReuseGitdir(name, path);

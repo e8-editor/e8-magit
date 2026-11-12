@@ -16,7 +16,7 @@
 import { transientArgs, transientDefinePrefix } from "transient";
 import { magitCompletingRead, magitReadStringNs } from "magit-base";
 import { magitGet, magitGetAll, magitSet, magitSetAll, magitGitdir, magitListRefnames, magitReadBranchOrCommit, magitStashAtPoint } from "magit-git";
-import { magitProcessBuffer, magitRunGitWithEditor } from "magit-process";
+import { magitProcessBuffer, magitRunGitWithEditor, type Proc } from "magit-process";
 import { magitRefresh } from "magit-mode";
 import { magitGitVariable } from "magit-transient";
 
@@ -102,7 +102,7 @@ function notesInfix(name: string, key: string, variable: string, global: boolean
 // magitProcessBuffer and magitProcessBufferCommand.
 
 /** Edits the note attached to COMMIT in notes ref REF, as magit-notes-edit. */
-export const magitNotesEdit = (commit: string, ref?: string): string => magitRunGitWithEditor("notes", ref && `--ref=${ref}`, "edit", commit);
+export const magitNotesEdit = (commit: string, ref?: string): Proc => magitRunGitWithEditor("notes", ref && `--ref=${ref}`, "edit", commit);
 export const magitNotesEditCommand = e8.defineCommand({
   name: "magit-notes-edit",
   doc: 'Edit the note attached to COMMIT.\nREF is the notes ref used to store the notes.\n\nInteractively or when optional REF is nil use the value of Git\nvariable `core.notesRef\' or "refs/notes/commits" if that is\nundefined.',
@@ -110,7 +110,7 @@ export const magitNotesEditCommand = e8.defineCommand({
 });
 
 /** Removes the note attached to COMMIT from notes ref REF, as magit-notes-remove. */
-export const magitNotesRemove = (commit: string, ref?: string): string => magitRunGitWithEditor("notes", ref && `--ref=${ref}`, "remove", commit);
+export const magitNotesRemove = (commit: string, ref?: string): Proc => magitRunGitWithEditor("notes", ref && `--ref=${ref}`, "remove", commit);
 export const magitNotesRemoveCommand = e8.defineCommand({
   name: "magit-notes-remove",
   doc: 'Remove the note attached to COMMIT.\nREF is the notes ref from which the note is removed.\n\nInteractively or when optional REF is nil use the value of Git\nvariable `core.notesRef\' or "refs/notes/commits" if that is\nundefined.',
@@ -118,7 +118,7 @@ export const magitNotesRemoveCommand = e8.defineCommand({
 });
 
 /** Merges notes ref REF into the current notes ref, as magit-notes-merge. */
-export const magitNotesMerge = (ref: string): string => magitRunGitWithEditor("notes", "merge", ref);
+export const magitNotesMerge = (ref: string): Proc => magitRunGitWithEditor("notes", "merge", ref);
 export const magitNotesMergeCommand = e8.defineCommand({
   name: "magit-notes-merge",
   doc: "Merge the notes ref REF into the current notes ref.\n\nThe current notes ref is the value of Git variable\n`core.notesRef' or \"refs/notes/commits\" if that is undefined.\n\nWhen there are conflicts, then they have to be resolved in the\ntemporary worktree \".git/NOTES_MERGE_WORKTREE\".  When\ndone use `magit-notes-merge-commit' to finish.  To abort\nuse `magit-notes-merge-abort'.",
@@ -138,7 +138,7 @@ export const magitNotesMergeAbort = e8.defineCommand({
 });
 
 /** Removes notes about unreachable commits, only saying which with DRY-RUN, as magit-notes-prune. */
-export function magitNotesPrune(dryRun = false): string {
+export function magitNotesPrune(dryRun = false): Proc {
   if (dryRun) magitProcessBuffer();
   return magitRunGitWithEditor("notes", "prune", dryRun && "--dry-run");
 }

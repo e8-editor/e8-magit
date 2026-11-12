@@ -37,7 +37,7 @@ import {
 import { magitGetModeBuffer } from "magit-mode";
 import { magitDiffArguments, magitShowCommitRev } from "magit-diff";
 import { magitFindFileNoselect } from "magit-files";
-import { magitRunGit } from "magit-process";
+import { magitRunGit, type Proc } from "magit-process";
 import { magitRebaseEditCommitRev } from "magit-sequence";
 import { magitFormatTimeString } from "magit-base";
 
@@ -222,8 +222,8 @@ export const magitBlameMode = e8.defineMinorMode({
       setLocal("magit-blame--make-margin-overlays", styles().some((s) => s.slice(1).some((kv) => (kv as [string, e8.Value])[0] === "margin-format")));
       updateMargin("enable");
     } else {
-      const process = local("magit-blame-process");
-      if (typeof process === "string" && e8.processLiveP(process)) {
+      const process = local("magit-blame-process") as Proc | null | undefined;
+      if (process !== null && process !== undefined && e8.processLiveP(process)) {
         // Magit waits for the sentinel; here it is told the process is gone.
         killed.add(process);
         e8.deleteProcess(process);
@@ -283,9 +283,9 @@ interface BlameProcess {
   parsed: number;
   arguments: [string | undefined, string, string[]];
 }
-const processes = new Map<string, BlameProcess>();
+const processes = new Map<Proc, BlameProcess>();
 /** Processes the mode killed, whose sentinels say nothing. */
-const killed = new Set<string>();
+const killed = new Set<Proc>();
 
 /** Blames the buffer with ARGS, the lines shown first, then the whole of it, as magit-blame--run. */
 function blameRun(args: string[]): void {
@@ -304,10 +304,10 @@ function blameRun(args: string[]): void {
     if (quick) quickstart.add(process);
   });
 }
-const quickstart = new Set<string>();
+const quickstart = new Set<Proc>();
 
 /** Starts git blame --incremental on FILE at REV with ARGS, for LINES only if given, as magit-blame-run-process. */
-export function magitBlameRunProcess(rev: string | undefined, file: string, args: string[], lines?: [number, number]): string {
+export function magitBlameRunProcess(rev: string | undefined, file: string, args: string[], lines?: [number, number]): Proc {
   const commandBuf = e8.bufferName();
   const gitArgs: GitArg[] = ["blame", "--incremental", args, lines && ["-L", `${lines[0]},${lines[1]}`], rev, "--", file];
   const state: BlameProcess = { commandBuf, output: "", parsed: 0, arguments: [rev, file, args] };
@@ -331,7 +331,7 @@ const exitOf = (event: string): ["exit" | "signal", number] | undefined =>
   event.startsWith("finished") ? ["exit", 0] : /code (\d+)/.test(event) ? ["exit", Number(/code (\d+)/.exec(event)![1])] : /^(killed|terminated|interrupt|hangup|deleted|failed)/.test(event) ? ["signal", 1] : undefined;
 
 /** When a blame ends, says so, or turns blaming off if it failed; after the lines shown, blames the rest, as magit-blame-process-sentinel and -quickstart-sentinel. */
-function processSentinel(process: string, event: string): void {
+function processSentinel(process: Proc, event: string): void {
   const status = exitOf(event);
   if (!status) return;
   const state = processes.get(process);
@@ -352,7 +352,7 @@ function processSentinel(process: string, event: string): void {
 }
 
 /** Parses each whole chunk git has written and makes its overlays, as magit-blame-process-filter. */
-function processFilter(process: string, output: string): void {
+function processFilter(process: Proc, output: string): void {
   const state = processes.get(process);
   if (!state) return;
   state.output += output;
