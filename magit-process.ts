@@ -407,8 +407,7 @@ export function magitStartProcess(program: string, args: string[], options: Star
     directory: entry.pwd,
     env: { INSIDE_EMACS: "30.2,magit", ...(options.editor ? withEditorEnv() : {}), ...(options.env ?? {}) },
     connectionType,
-    // The pinned with-editor declares its filter's process a string, as E8 0.5.8 gives it.
-    filter: options.editor ? (withEditorFilter(collect as unknown as (p: string, o: string) => void) as unknown as typeof collect) : collect,
+    filter: options.editor ? withEditorFilter(collect) : collect,
     sentinel: (_p, event) => {
       if (!/^(finished|exited|failed|killed|terminated)/.test(event)) return;
       const exit = event.startsWith("finished") ? 0 : Number(/code (\d+)/.exec(event)?.[1] ?? 1);
