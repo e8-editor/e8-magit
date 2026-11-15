@@ -1,6 +1,13 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/e8-editor/e8/main/docs/assets/banner-ports-dark.png">
+  <img alt="E8 package ports" src="https://raw.githubusercontent.com/e8-editor/e8/main/docs/assets/banner-ports-light.png">
+</picture>
+
+Part of the [E8 package ports](https://github.com/e8-editor/e8#packages): Emacs packages ported to [E8](https://github.com/e8-editor/e8) and maintained with it. This is a port of [Magit](https://github.com/magit/magit) 4.4.0 by Marius Vollmer, Jonas Bernoulli and the [Magit contributors](https://github.com/magit/magit/blob/main/docs/AUTHORS.md). The design and the original code are theirs; the port keeps upstream's licence, the GNU General Public License version 3 or later.
+
 # e8-magit
 
-Git in a status buffer of sections, for [E8](https://github.com/e8-editor/e8): `C-x g` shows the repository, and single keys stage, unstage, discard, commit, branch, push, pull, rebase and stash, with Magit's menus. A port of [Magit](https://github.com/magit/magit) 4.4.0.
+Git in a status buffer of sections, for [E8](https://github.com/e8-editor/e8): `C-x g` shows the repository, and single keys stage, unstage, discard, commit, branch, push, pull, rebase and stash, with Magit's menus.
 
 **A port of all of Magit 4.4.0**, as E8 runs it: the status buffer, staging and discarding, committing, branching, merging, rebasing and the rest of the sequencer, pushing, pulling and fetching, logs, diffs and the refs buffer, stashes, blame, bisect, worktrees, submodules, subtrees, notes, patches, ediff, wip refs, and every menu as Magit's shows it. A parity test checks the port against every command, option, face and key binding Magit defines, recorded from Emacs; [what is missing](#what-is-missing) lists the exceptions, each with its reason, and most are things E8 itself does not have. [docs/plan.md](docs/plan.md) is how the port was made.
 
@@ -106,7 +113,7 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
 
 ## Credit
 
-This is a port to E8 of [Magit](https://github.com/magit/magit) 4.4.0, by Marius Vollmer, Jonas Bernoulli and the [Magit contributors](https://github.com/magit/magit/blob/main/docs/AUTHORS.md), copyright The Magit Project Contributors, and distributed in NonGNU ELPA and MELPA, under the GNU General Public License version 3 or later. It is not the upstream authors' work as published, and they do not endorse it: report problems with the port here, not upstream.
+Magit 4.4.0 is copyright The Magit Project Contributors and distributed in NonGNU ELPA and MELPA, under the GNU General Public License version 3 or later. This port is not the upstream authors' work as published, and they do not endorse it: report problems with the port here, not upstream.
 
 ## Developing
 
