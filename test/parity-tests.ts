@@ -5,7 +5,9 @@
 // test/record-parity.el) is in E8's port, but for the exceptions
 // test/parity-exceptions.json lists, each with its reason, which the
 // README repeats. An exception no longer needed fails too, so the list
-// stays true. E8_PARITY_REPORT=1 prints what is missing.
+// stays true, but for one whose reason starts "Older E8:", needed only
+// while the tests also run on E8 releases that lack it.
+// E8_PARITY_REPORT=1 prints what is missing.
 
 import { ertDeftest, shouldEqual } from "ert";
 import "magit";
@@ -37,7 +39,7 @@ const exceptions = (): Exceptions => JSON.parse(e8.readTextFile(testFile("parity
 /** Of NAMES, those E8 lacks that are not excepted, and the exceptions no longer needed. */
 function compare(names: string[], has: (name: string) => boolean, excepted: { [name: string]: string }, what: string): { missing: string[]; stale: string[] } {
   const missing = names.filter((n) => !has(n) && !(n in excepted));
-  const stale = Object.keys(excepted).filter((n) => !names.includes(n) || has(n));
+  const stale = Object.keys(excepted).filter((n) => !names.includes(n) || (has(n) && !excepted[n].startsWith("Older E8:")));
   if (e8.getenv("E8_PARITY_REPORT")) e8.message(`PARITY ${what}: ${missing.length} missing\n${missing.join("\n")}`);
   return { missing, stale };
 }
