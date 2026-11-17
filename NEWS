@@ -1,0 +1,94 @@
+magit NEWS -- history of user-visible changes.
+
+This is the news of e8-magit, the E8 port of magit.  'C-h P' shows it
+under the package's description.
+
+
+* Changes in magit 1.0.0
+
+This release ports all of Magit 4.4.0, as far as E8 can run it.  It
+needs E8 0.5.0 or newer, and installs e8-magit-section 0.2.0.
+
+** 'M-x magit' shows the status buffer, as 'magit-status' does.
+
+** The status buffer shows a merge, rebase, cherry-pick or bisect.
+Conflicted files, a revert and a git am in progress show too, and 'j'
+('magit-status-jump') jumps to a section.
+
+** 'a' and 'v' apply and reverse the change at point.
+They take a hunk, a file or a region's lines from a commit's, stash's
+or diff's buffer; with 'C-u', as a 3-way merge.
+
+** 'k' discards a change as what git status says of the file asks.
+It resolves a conflict to the side asked for, brings back a deleted
+file and undoes a rename; 'C-c ^' keeps one side of a conflict's hunk.
+
+** Cherry-pick, revert, tag and remote have menus of their own.
+'A', 'V', 't' and 'M' open them, and 'w' applies patches with git am.
+
+** Pushing, pulling and fetching ask for a password when git needs one.
+
+** Logs draw the graph, and the author and age in the margin.
+'L' changes the margin, '+' and '-' the number of commits, and
+'--patch' and '--stat' show each commit's diff.
+
+** Diffs have a diffstat, and 'magit-diff-refine-hunk' marks words.
+'+', '-' and '0' change the context, in every diff buffer.
+
+** 'B' bisects, and 'Z', 'o', 'O' and 'T' manage worktrees and more.
+They are the menus for worktrees, submodules, subtrees and notes.
+
+** 'C-c M-g' in a file's buffer opens 'magit-file-dispatch'.
+It stages, diffs, logs and blames the file, and 'magit-find-file'
+visits it at another revision, in 'magit-blob-mode'.
+
+** 'magit-blame' shows who last changed each line.
+Each chunk has a heading, a highlight or the margin, as
+'magit-blame-styles' says, and 'c' cycles them.
+
+** 'e' and 'E' stage, resolve and show changes with Ediff.
+
+** Commit messages take trailers, history and Magit's style checks.
+'C-c C-i' inserts a trailer, 'M-p' and 'M-n' go through earlier
+messages, and 'git-commit-style-convention-checks' says what to check.
+
+** 'magit-wip-mode' commits snapshots to work-in-progress refs.
+'magit-auto-revert-mode' reverts the buffers whose files git changed.
+
+** 'M-x magit-list-repositories' lists 'magit-repository-directories'.
+
+
+* Changes in magit 0.1.0
+
+This is the first release, a port of part of Magit 4.4.0.
+
+** 'C-x g' ('magit-status') shows the repository's status.
+The branch, its upstream and push remote, untracked files, unstaged and
+staged changes, stashes, and the commits unpushed, unpulled and recent.
+
+** 'C-x M-g' ('magit-dispatch') opens the dispatch menu from anywhere.
+
+** 's', 'u' and 'k' stage, unstage and discard at point.
+A file, a hunk, a whole section, or the lines of a region in a hunk;
+'S' and 'U' stage and unstage everything.
+
+** 'c' commits, extends, amends, rewords, fixes up and squashes.
+Messages are written in 'git-commit-mode': 'C-c C-c' finishes and
+'C-c C-k' gives up.
+
+** 'b' checks out, creates, spins off, renames, resets and deletes.
+
+** 'P', 'F' and 'f' push, pull and fetch.
+
+** 'm' merges, and 'r' rebases, interactively in 'git-rebase-mode'.
+
+** 'X' resets, and 'z' stashes, applies, pops and drops stashes.
+
+** 'l' shows logs, and 'd' diffs, with Magit's menus.
+
+** 'g' refreshes the buffer, and '$' shows the git commands run.
+
+** 'magit-save-repository-buffers' saves files before git runs.
+'magit-git-executable' names git, 'magit-log-section-commit-count' says
+how many recent commits the status shows, and
+'git-commit-summary-max-length' how long a summary may be.
