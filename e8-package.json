@@ -4,6 +4,6 @@
   "e8": "0.5.0",
   "requires": {
     "magit-section": "e8-editor/e8-magit-section@0.2.0",
-    "with-editor": "e8-editor/e8-with-editor@0.1.0"
+    "with-editor": "e8-editor/e8-with-editor@0.2.0"
   }
 }

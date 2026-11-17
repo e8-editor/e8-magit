@@ -4,6 +4,23 @@ This is the news of e8-magit, the E8 port of magit.  'C-h P' shows it
 under the package's description.
 
 
+* Changes in magit 1.0.1
+
+This release fixes two bugs.  It needs E8 0.5.0 or newer, and installs
+e8-magit-section 0.2.0 and e8-with-editor 0.2.0.
+
+** Turning 'magit-blame-mode' off stops the 'git blame' still running.
+On E8 0.5.9 and newer, whose processes are objects, it went on.
+
+** 'magit-toplevel' finds the working tree from inside '.git'.
+Magit's commands work in a buffer visiting a file there, such as
+'COMMIT_EDITMSG', as they do in Magit.
+
+** It type-checks against E8 0.5.9 and newer.
+There windows and processes are objects; it type-checks against older
+E8 too.
+
+
 * Changes in magit 1.0.0
 
 This release ports all of Magit 4.4.0, as far as E8 can run it.  It
