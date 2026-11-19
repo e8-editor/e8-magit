@@ -161,7 +161,10 @@ function ansiColored(entry: ProcessEntry, output: string): e8.PropertizedString 
     const colored = e8.withCurrentBuffer(buffer, () => {
       // Each section starts with no colors, as the text before it was already applied.
       e8.insert(`\x1b[0m${output}`);
-      ansiColorApplyOnRegion(e8.pointMin(), e8.pointMax());
+      // As text properties, which the copy keeps, as magit-process-finish-section binds
+      // ansi-color-apply-face-function; E8 0.5.18 and before put faces so without being asked.
+      const putFace = (beg: number, end: number, face: e8.Value) => e8.putTextProperty(beg, end, "font-lock-face", face ?? "default");
+      e8.letBind({ "ansi-color-apply-face-function": putFace as unknown as e8.Value }, () => ansiColorApplyOnRegion(e8.pointMin(), e8.pointMax()));
       return e8.bufferSubstring(e8.pointMin(), e8.pointMax());
     });
     entry.colored = [output, colored];
