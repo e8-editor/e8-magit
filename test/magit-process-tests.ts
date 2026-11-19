@@ -162,7 +162,8 @@ ertDeftest("magit-process-timestamps-and-colors-in-the-process-buffer", () => {
       should(text.includes("\nred plain\n"), text);
       const at = e8.withCurrentBuffer(name, () => e8.bufferText().lastIndexOf("red plain") + e8.pointMin());
       const face = e8.withCurrentBuffer(name, () => e8.getTextProperty(at, "face") ?? e8.getTextProperty(at, "font-lock-face"));
-      should(JSON.stringify(face).includes("ansi-color-red"), JSON.stringify(face));
+      // Emacs's (:foreground "red3"); in E8 0.5.18 and before, the face ansi-color-red.
+      should(/ansi-color-red|"red3"/.test(JSON.stringify(face) ?? ""), JSON.stringify(face));
     });
     void repo;
   });
