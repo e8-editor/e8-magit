@@ -109,7 +109,7 @@ Variables: `magit-git-executable` (`"git"`), `magit-log-section-commit-count` (h
   - **Emacs's minibuffer keys**: of the keys `magit-log-read-revs-map` and `magit-minibuffer-local-ns-map` inherit from `crm-local-completion-map` and `minibuffer-local-map`, those whose commands E8 lacks (`next-line-or-history-element`, the matching-history, completions-buffer and file-cache commands, `minibuffer-completion-help`, and in E8 0.5.9 and earlier `abort-minibuffers`), and `mouse-select-window` on `<mouse-2>` in the repository and module lists.
   - **Keys Magit undefines**: `q` in git-rebase-mode, `C-c C-n` in the reflog and `C-c C-b` and `C-c C-f` when selecting a commit are bound to `undefined`, as in Magit; Emacs's recording shows the parent map's command for them instead.
 - Debugging: `magit-toggle-profiling` and `magit-profile-refresh-buffer` time the git commands Magit runs, as E8 has no elp to instrument functions with, showing them as elp does; `magit-emacs-Q-command` gives an E8 command line (`e8 -q -L ... -l magit.ts`); and `magit-zap-caches` cannot reach magit-section's visibility cache.
-- Emacs reads `M-TAB` as `C-M-i`, which runs `magit-dired-jump`, and `M-<tab>` as a key of its own, `magit-section-cycle-diffs`; E8 reads `M-TAB` as `M-<tab>`, so `magit-dired-jump` is on `C-M-i` alone.
+- Magit binds `C-M-i` (`ESC TAB`, as a terminal sends Meta and Tab) to `magit-dired-jump`, and `M-<tab>` (Meta and Tab in Emacs's GUI) to `magit-section-cycle-diffs`. E8 reads the two as one key, so it keeps `magit-section-cycle-diffs`, as Meta and Tab run in Emacs's GUI, and `magit-dired-jump` is on `C-x C-j` in the status buffer and `M-x`. The parity audit excepts `C-M-i` in each Magit mode's map for this.
 
 ## Credit
 

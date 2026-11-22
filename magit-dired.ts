@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Dired support for Magit, after magit-dired.el: from a Magit buffer,
-// C-M-i, which is M-TAB in Emacs, (and C-x C-j in the status buffer) lists the directory of the
+// C-x C-j in the status buffer, or M-x magit-dired-jump, lists the directory of the
 // file at point with point on it (magit-dired-jump), and & runs a shell
 // command on the file at point (magit-do-async-shell-command); in Dired,
 // staging, unstaging and the log of the marked files, which the file
@@ -127,9 +127,10 @@ export const magitDoAsyncShellCommandCommand = e8.defineCommand({
 
 // Keys, as magit-mode-map, magit-status-mode-map and magit-diff-section-map bind them.
 
-// Emacs reads M-TAB as C-M-i, and M-<tab> as a key of its own, which
-// magit-mode-map binds to magit-section-cycle-diffs; E8 reads M-TAB as
-// M-<tab>, so this is bound as C-M-i only.
-e8.defineKey("magit-mode-map", "C-M-i", magitDiredJumpCommand);
+// Magit binds C-M-i (ESC TAB, as a terminal sends Meta and Tab) to
+// magit-dired-jump, and M-<tab> (Meta and Tab in Emacs's GUI) to
+// magit-section-cycle-diffs. E8 reads both as one key (its ADR 0114), so
+// it keeps M-<tab>'s command, which Meta and Tab run in Emacs's GUI, and
+// magit-dired-jump is on C-x C-j in the status buffer and M-x.
 e8.remapCommand("magit-status-mode-map", "dired-jump", magitDiredJumpCommand);
 e8.defineKey("magit-diff-section-map", "&", magitDoAsyncShellCommandCommand);
