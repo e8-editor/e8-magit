@@ -4,6 +4,20 @@ This is the news of e8-magit, the E8 port of magit.  'C-h P' shows it
 under the package's description.
 
 
+* Changes in magit 1.0.2
+
+This release fixes two bugs.  It needs E8 0.5.0 or newer, and installs
+e8-magit-section 0.2.0 and e8-with-editor 0.2.0.
+
+** 'M-<tab>' cycles the diffs on E8 0.5.20 and newer.
+There 'C-M-i' is the same key as 'M-<tab>', and binding it to
+'magit-dired-jump' took the key from 'magit-section-cycle-diffs'.
+'magit-dired-jump' is on 'C-x C-j' in the status buffer and on 'M-x'.
+
+** The process buffer keeps git's colours on E8 0.5.19 and newer.
+They are put as 'font-lock-face', as Magit puts them.
+
+
 * Changes in magit 1.0.1
 
 This release fixes two bugs.  It needs E8 0.5.0 or newer, and installs
