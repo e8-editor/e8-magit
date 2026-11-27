@@ -1982,15 +1982,18 @@ e8.defineVariable({ name: "magit-manual-url", doc: "Where Magit's manual is on t
 /**
  * Visits the Magit manual, as magit-info: in Info if E8 has an Info reader,
  * else the manual on the web, with browse-url if there is one, else with
- * the system's opener (open, xdg-open), saying where it is.
+ * the system's opener (open, xdg-open), saying where it is. In batch,
+ * where there is no browser, it only says where.
  */
 export function magitInfo(): void {
   if (e8.fboundp("info")) return void e8.funcall("info", "magit");
   const url = String(e8.variable("magit-manual-url"));
-  if (e8.fboundp("browse-url")) return void e8.funcall("browse-url", url);
   if (!truthy(e8.variable("noninteractive"))) {
-    const opener = e8.callProcess(["uname", "-s"]).output.trim() === "Darwin" ? "open" : "xdg-open";
-    e8.makeProcess({ name: "magit-info", command: [opener, url] });
+    if (e8.fboundp("browse-url")) e8.funcall("browse-url", url);
+    else {
+      const opener = e8.callProcess(["uname", "-s"]).output.trim() === "Darwin" ? "open" : "xdg-open";
+      e8.makeProcess({ name: "magit-info", command: [opener, url] });
+    }
   }
   e8.message(`The Magit manual is at ${url}`);
 }
